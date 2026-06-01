@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { BeatPlayer } from "@/components/beat-player";
-import { BarEditor } from "@/components/bar-editor";
 import { ChallengeCard } from "@/components/challenge-card";
+import { LyricCanvasEditor } from "@/components/lyric-canvas-editor";
+import { HighlightLegend } from "@/components/highlight-legend";
 import type { RoomStateDTO } from "@/lib/types";
 import { getRoomUrl, cn } from "@/lib/utils";
 
@@ -25,8 +26,8 @@ export default function RoomPage() {
   const [nickname, setNickname] = useState("");
   const [isJoining, setIsJoining] = useState(false);
 
-  // Writing state
-  const [bars, setBars] = useState<string[]>([]);
+  // Writing state — stored as a single string, split to lines on submit
+  const [lyricsText, setLyricsText] = useState("");
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
@@ -49,15 +50,12 @@ export default function RoomPage() {
       const data: RoomStateDTO = await res.json();
       setRoomState(data);
       setError(null);
-      if (data.status === "WRITING" && bars.length === 0) {
-        setBars(Array(data.challenge.barCount).fill(""));
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load room");
     } finally {
       setIsLoading(false);
     }
-  }, [roomCode, bars.length]);
+  }, [roomCode]);
 
   useEffect(() => { fetchRoom(); }, [fetchRoom]);
 
@@ -123,13 +121,17 @@ export default function RoomPage() {
   }
 
   async function handleSubmit() {
-    if (bars.every((b) => !b.trim())) return;
+    const lines = lyricsText
+      .split("\n")
+      .map((l) => l.trimEnd())
+      .filter((l) => l.trim().length > 0);
+    if (lines.length === 0) return;
     setIsSubmitting(true);
     try {
       const res = await fetch(`/api/rooms/${roomCode}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lines: bars }),
+        body: JSON.stringify({ lines }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -269,8 +271,8 @@ export default function RoomPage() {
           <WritingView
             beat={beat}
             challenge={challenge}
-            bars={bars}
-            setBars={setBars}
+            lyricsText={lyricsText}
+            setLyricsText={setLyricsText}
             hasSubmitted={hasSubmitted}
             isSubmitting={isSubmitting}
             onSubmit={handleSubmit}
@@ -532,47 +534,153 @@ function LobbyView({
 }
 
 function WritingView({
-  beat, challenge, bars, setBars, hasSubmitted, isSubmitting, onSubmit, submittedCount, totalCount,
+  beat,
+  challenge,
+  lyricsText,
+  setLyricsText,
+  hasSubmitted,
+  isSubmitting,
+  onSubmit,
+  submittedCount,
+  totalCount,
 }: {
   beat: RoomStateDTO["beat"];
   challenge: RoomStateDTO["challenge"];
-  bars: string[];
-  setBars: (bars: string[]) => void;
+  lyricsText: string;
+  setLyricsText: (text: string) => void;
   hasSubmitted: boolean;
   isSubmitting: boolean;
   onSubmit: () => void;
   submittedCount: number;
   totalCount: number;
 }) {
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between text-xs text-zinc-500">
-        <span>Writing Phase</span>
-        <span>{submittedCount} / {totalCount} submitted</span>
+  const { barCount } = challenge;
+  const nonEmptyCount = lyricsText
+    .split("\n")
+    .filter((l) => l.trim().length > 0).length;
+  const isValid = nonEmptyCount === barCount;
+  const tooMany = nonEmptyCount > barCount;
+
+  let validationNote = "";
+  if (nonEmptyCount > 0 && !isValid) {
+    if (tooMany) validationNote = `Too many bars — trim to ${barCount}`;
+    else validationNote = `${barCount - nonEmptyCount} more bar${barCount - nonEmptyCount !== 1 ? "s" : ""} needed`;
+  }
+
+  // ── Waiting / submitted state ────────────────────────────────────────────
+  if (hasSubmitted) {
+    const pct = totalCount > 0 ? (submittedCount / totalCount) * 100 : 0;
+    return (
+      <div className="space-y-4">
+        {/* Submitted card */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
+          <div className="text-5xl mb-4">🔥</div>
+          <p className="font-black text-xl mb-1 text-white">Bars submitted!</p>
+          <p className="text-zinc-500 text-sm mb-5">
+            Waiting for the crew... {submittedCount} / {totalCount} done
+          </p>
+          {/* Progress bar */}
+          <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-violet-500 rounded-full transition-all duration-500"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <p className="text-xs text-zinc-600 mt-3">
+            Host will move to voting when everyone&apos;s ready.
+          </p>
+        </div>
+
+        {/* Beat still visible while waiting */}
+        <BeatPlayer beat={beat} />
       </div>
-      <BeatPlayer beat={beat} />
-      <ChallengeCard challenge={challenge} />
-      {!hasSubmitted ? (
-        <div className="space-y-4">
-          <BarEditor barCount={challenge.barCount} bars={bars} onChange={setBars} />
+    );
+  }
+
+  // ── Writing state ────────────────────────────────────────────────────────
+  return (
+    <>
+      {/* Scrollable content with padding for fixed submit button */}
+      <div className="space-y-4 pb-36">
+        {/* Phase header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
+              Writing Phase
+            </span>
+          </div>
+          <span className="text-xs text-zinc-600 font-mono">
+            {submittedCount} / {totalCount} submitted
+          </span>
+        </div>
+
+        {/* Beat player */}
+        <BeatPlayer beat={beat} />
+
+        {/* Challenge rules */}
+        <ChallengeCard challenge={challenge} />
+
+        {/* Required word strip (if applicable) */}
+        {challenge.requiredWords.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap px-1">
+            <span className="text-xs text-zinc-500">Required:</span>
+            {challenge.requiredWords.map((rw) => (
+              <span
+                key={rw.id}
+                className="text-xs font-mono font-bold uppercase text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2.5 py-0.5 rounded-full tracking-wide"
+              >
+                {rw.word}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Lyric canvas */}
+        <LyricCanvasEditor
+          barCount={barCount}
+          value={lyricsText}
+          onChange={setLyricsText}
+          disabled={isSubmitting}
+        />
+
+        {/* Highlight color legend */}
+        <HighlightLegend />
+      </div>
+
+      {/* Fixed sticky submit button */}
+      <div className="fixed bottom-0 inset-x-0 z-50 pointer-events-none">
+        <div
+          className="max-w-sm mx-auto px-5 pb-7 pt-6 pointer-events-auto"
+          style={{
+            background:
+              "linear-gradient(to top, rgb(9,9,11) 60%, rgba(9,9,11,0.85) 85%, transparent 100%)",
+          }}
+        >
+          {validationNote && (
+            <p className="text-xs text-amber-400 text-center mb-2">
+              {validationNote}
+            </p>
+          )}
           <button
             onClick={onSubmit}
-            disabled={isSubmitting || bars.every((b) => !b.trim())}
-            className="w-full bg-amber-400 text-zinc-950 font-black text-lg py-4 rounded-2xl hover:bg-amber-300 active:scale-95 transition-all disabled:opacity-50"
+            disabled={!isValid || isSubmitting}
+            className={cn(
+              "w-full font-black text-lg py-4 rounded-2xl transition-all active:scale-95",
+              "bg-gradient-to-r from-violet-600 to-purple-600 text-white",
+              "hover:from-violet-500 hover:to-purple-500",
+              "shadow-lg shadow-violet-900/50",
+              "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
+            )}
           >
             {isSubmitting ? "Submitting..." : "Submit Bars 🔥"}
           </button>
-        </div>
-      ) : (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center">
-          <div className="text-3xl mb-3">🔥</div>
-          <p className="font-black text-lg mb-1">Bars submitted!</p>
-          <p className="text-zinc-500 text-sm">
-            Waiting for others... ({submittedCount} / {totalCount})
+          <p className="text-xs text-zinc-600 text-center mt-2">
+            You can&apos;t change your bars after submitting
           </p>
         </div>
-      )}
-    </div>
+      </div>
+    </>
   );
 }
 

@@ -87,6 +87,40 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 5 — 2026-06-01
+
+**Goal:** Redesign the WRITING state UI to feel like a premium mobile rap puzzle game.
+
+**What was done:**
+
+- `components/lyric-canvas-editor.tsx` — **new component.** Single `<textarea>` with a left line-number gutter. Both use `line-height: 1.75rem` and matching vertical padding so gutter numbers align to textarea rows. Progress dots footer (filled = bar written). Real-time bar count validation (`N / barCount`). Turns green border when valid, shows amber note when too few/many bars.
+- `components/highlight-legend.tsx` — **new component.** Color guide card showing dot or dashed-underline indicator for each future highlight category (setup rhyme, internal rhyme, metaphor, punchline, callback, required word, needs fixing). Labeled "coming soon" since AI analysis isn't wired yet.
+- `components/beat-player.tsx` — **complete visual redesign.** Dark gradient card with violet artwork placeholder, BPM + genre + LOOP badges, fake waveform (32 bars that fill violet as the track plays), invisible `<input type=range>` overlay for seeking, time display. All audio logic (play/pause, timeupdate, seek) preserved unchanged.
+- `components/challenge-card.tsx` — **complete visual redesign.** Each rule now has a colored numbered circular badge (yellow = end rhyme, cyan = internal rhyme, green = metaphor, purple = punchline, pink = callback, amber = required word, etc.) matching the future highlight color system. Required words shown as amber caps chips.
+- `app/room/[roomCode]/page.tsx` — **WritingView redesigned end-to-end:**
+  - State: `bars: string[]` → `lyricsText: string` (single string, split on submit)
+  - `handleSubmit`: splits `lyricsText` by `\n`, trims, filters empty lines → sends `{ lines }` array to the existing submit API (no API change)
+  - `WritingView`: phased header with pulsing amber dot, `BeatPlayer`, `ChallengeCard`, optional required word strip, `LyricCanvasEditor`, `HighlightLegend`, fixed sticky submit button with violet gradient and gradient fade background
+  - Submit button disabled until `nonEmptyCount === barCount`; validation note shown inline above button
+  - Submitted/waiting card redesigned: progress bar, beat player stays visible while waiting
+  - `fetchRoom` deps cleaned up (removed stale `bars.length` dep)
+- `DECISIONS.md` — documented lyric canvas design choice
+
+**TypeScript:** `pnpm tsc --noEmit` — clean, no errors.
+**Build:** `pnpm next build` — compiles cleanly, `/room/[roomCode]` page = 7.25 kB.
+
+**Status after this session:**
+WRITING state looks and feels like a premium mobile game. Lyric canvas replaces individual input boxes. All existing game flow (LOBBY → WRITING → SUBMIT → WAITING, refresh persistence, host/guest behavior) is preserved.
+
+**Next 5 tasks:**
+1. VOTING state — host "End Writing" button (WRITING → VOTING), show anonymous submissions, one vote per participant
+2. `POST /api/rooms/[roomCode]/vote` — store vote in submission store, prevent double-voting
+3. REVEAL state — sort by votes, show winner, de-anonymize names
+4. Connect PostgreSQL: `.env.local` → `pnpm db:push` → `pnpm db:seed`
+5. Replace in-memory store with real Prisma operations
+
+---
+
 ## Session 4 — 2026-06-01
 
 **Goal:** Build LOBBY → WRITING → SUBMIT BARS → WAITING slice.

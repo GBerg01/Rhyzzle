@@ -144,6 +144,18 @@ Format:
 
 ---
 
+## 2026-06-01 — Lyric canvas: single textarea + left gutter (not separate input boxes)
+
+**Decision:** The WRITING state bar editor uses one `<textarea>` for the full lyric text, with a separate non-interactive gutter div that renders line numbers 1–N aligned to each textarea row.
+
+**Reason:** The original design was N individual `<textarea>` elements in separate boxes — this feels like a worksheet, not a lyric notebook. The product goal is to feel like a premium mobile game. One continuous canvas where the user writes freely, with the structure visible in the gutter, matches how real lyricists write (one page, not a form). It also eliminates the Enter-key focus-management complexity.
+
+**How it works:** Both the gutter and the textarea use `line-height: 1.75rem` and `padding-top: 1rem`. The gutter renders N divs each `height: 1.75rem`, which aligns them to the corresponding textarea lines. State is stored as a single `string` (renamed from `bars: string[]`); on submit the string is split by `\n`, trimmed, and empty lines are filtered before being sent as the `lines: string[]` array to the submit API.
+
+**Tradeoffs:** Line numbers desync if the user wraps a single bar across multiple visual lines (long text + narrow screen). Acceptable for now — rap bars are typically short, and the alignment holds at 390px width.
+
+---
+
 ## 2026-06-01 — Tailwind CSS only (no styled-components, no CSS modules)
 
 **Decision:** Style everything with Tailwind CSS utility classes. Use shadcn/ui selectively for complex components (modals, selects) by copying component code.
