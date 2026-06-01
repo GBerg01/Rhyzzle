@@ -87,6 +87,41 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 8 — 2026-06-01
+
+**Goal:** Make rule chips in the puzzle board interactive — tapping opens a help sheet with definition, example, and tip.
+
+**What was done:**
+
+- `lib/rule-help.ts` — **new file.** Centralized rule education map. `RuleHelpKey` union type (13 keys). `RuleHelp` interface with `label`, `chipClass`, `textClass`, `shortDefinition`, `example`, `tip`. `RULE_HELP` record with full definitions for: SETUP_RHYME, END_RHYME, RHYME_WITH_LINE, INTERNAL_RHYME, CHAIN_RHYME, METAPHOR, THEME_REFERENCE, PUNCHLINE, CALLBACK, ALLITERATION, ASSONANCE, REQUIRED_WORD, WRITE.
+
+- `components/rule-help-sheet.tsx` — **new component.** Fixed bottom sheet. Backdrop (tap to dismiss) + white panel with drag handle, colored badge, definition, example block, 💡 tip, "Got it" button. Closes on Escape key. No external dependencies.
+
+- `components/lyric-puzzle-canvas.tsx` — updated:
+  - `ChipData` interface: added `helpKey: RuleHelpKey`
+  - `ruleToChip()`: added `helpKey` for all 10 explicit ConstraintType cases
+  - `buildMeta()`: added `helpKey` to all three chip paths (explicit rule, inferred rhyme, SETUP RHYME)
+  - Added `useState<RuleHelpKey | null>` for `activeHelpKey`
+  - Added `openHelp(helpKey, e)` — calls `e.preventDefault()` + `e.stopPropagation()`, sets active key
+  - Rule chips changed from `<span>` to `<button type="button">` with `active:scale-95` and `?` suffix
+  - Required word chips changed from `<span>` to `<button>` that opens `REQUIRED_WORD` help
+  - `RuleHelpSheet` rendered at bottom of component, bound to `activeHelpKey`
+
+**TypeScript:** `pnpm tsc --noEmit` — clean.
+**Build:** `pnpm next build` — clean. `/room/[roomCode]` page = 11.5 kB (rule content included in bundle).
+
+**Status after this session:**
+Every rule chip in the writing canvas is now tappable. Tapping opens a bottom sheet explaining the rule with a plain-English definition, example, and quick tip. Works on mobile and desktop. Dismiss by tapping the backdrop, pressing Escape, or hitting "Got it".
+
+**Next 5 tasks:**
+1. Connect PostgreSQL: `.env.local` → `pnpm db:push` → `pnpm db:seed`
+2. Replace in-memory stores with real Prisma operations
+3. Make BeatPlayer functional with real audio
+4. End-to-end integration test (create → join → write → vote → reveal)
+5. Daily challenge page (Phase 3)
+
+---
+
 ## Session 7 — 2026-06-01
 
 **Goal:** Complete the full private room game loop: WRITING → VOTING → REVEAL.

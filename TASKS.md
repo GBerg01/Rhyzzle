@@ -87,6 +87,16 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 
 ---
 
+## Phase 2.5: Rule Education (Writing UX)
+
+| Status | Task | Acceptance Criteria | Files |
+|---|---|---|---|
+| `DONE` | Rule help definitions | Centralized map with 13 rule types, each with definition, example, tip | `lib/rule-help.ts` |
+| `DONE` | Rule chip tap-to-help | Tapping any chip opens bottom sheet with definition, example, tip | `components/lyric-puzzle-canvas.tsx`, `components/rule-help-sheet.tsx` |
+| `DONE` | Required word tap-to-help | Tapping a required word chip explains what it means | `components/lyric-puzzle-canvas.tsx` |
+
+---
+
 ## Phase 5: Highlighting & Constraint Engine
 
 | Status | Task | Acceptance Criteria | Files |

@@ -156,6 +156,18 @@ Format:
 
 ---
 
+## 2026-06-01 — Rule education uses static definitions for MVP (no AI)
+
+**Decision:** Rule chips in the puzzle canvas show a bottom sheet with a static definition, example, and tip when tapped. All content lives in `lib/rule-help.ts` as a plain TypeScript map keyed by `RuleHelpKey`.
+
+**Reason:** Users tapping "METAPHOR" or "PUNCHLINE" don't know what to write. Static education content solves this without AI, without an API call, and without any latency. The content is curated once and applies to all challenges.
+
+**Tradeoffs:** Definitions don't adapt to the specific challenge or beat. Examples are generic. For MVP this is fine — the point is "what does this rule type mean?" not "what should I write for this specific challenge?"
+
+**How to apply:** When adding new ConstraintType values, add a corresponding entry to `lib/rule-help.ts` and a `helpKey` in `ruleToChip()` in the canvas component.
+
+---
+
 ## 2026-06-01 — Voting in-memory, consistent with submission store
 
 **Decision:** Votes are stored in a third global Map (`__rhyzzleVotes`) in `lib/room-store.ts`, keyed by `${ROOMCODE}:${participantId}`. One vote per participant per room.

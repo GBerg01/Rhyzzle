@@ -1,8 +1,10 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { ChallengeDTO, ChallengeRuleDTO, ConstraintType } from "@/lib/types";
+import type { RuleHelpKey } from "@/lib/rule-help";
+import { RuleHelpSheet } from "@/components/rule-help-sheet";
 
 // ─── Color palette ────────────────────────────────────────────────────────────
 
@@ -30,35 +32,40 @@ function letterColor(l: string): LineColor {
 
 // ─── Rule → chip data ─────────────────────────────────────────────────────────
 
-interface ChipData { label: string; color: LineColor; placeholder: string }
+interface ChipData {
+  label: string;
+  color: LineColor;
+  placeholder: string;
+  helpKey: RuleHelpKey;
+}
 
 function ruleToChip(type: ConstraintType, lineIndex: number, rhymesWithLine: number | null): ChipData {
   const rw = rhymesWithLine !== null ? rhymesWithLine + 1 : null;
   switch (type) {
     case "END_RHYME":
       return rw
-        ? { label: `RHYME ↔ L${rw}`,    color: "cyan",   placeholder: `End rhyming with line ${rw}…` }
-        : { label: "END RHYME",           color: "cyan",   placeholder: "End on a rhyming word…" };
+        ? { label: `RHYME ↔ L${rw}`,    color: "cyan",   placeholder: `End rhyming with line ${rw}…`,                     helpKey: "RHYME_WITH_LINE" }
+        : { label: "END RHYME",           color: "cyan",   placeholder: "End on a rhyming word…",                           helpKey: "END_RHYME" };
     case "INTERNAL_RHYME":
-      return   { label: "INTERNAL RHYME", color: "cyan",   placeholder: "Slip a rhyme inside the bar itself…" };
+      return   { label: "INTERNAL RHYME", color: "cyan",   placeholder: "Slip a rhyme inside the bar itself…",             helpKey: "INTERNAL_RHYME" };
     case "LINE_START_RHYMES_WITH_PREVIOUS_END":
-      return   { label: "CHAIN RHYME",    color: "cyan",   placeholder: `Start with a word rhyming with line ${lineIndex}'s ending…` };
+      return   { label: "CHAIN RHYME",    color: "cyan",   placeholder: `Start with a word rhyming with line ${lineIndex}'s ending…`, helpKey: "CHAIN_RHYME" };
     case "METAPHOR":
-      return   { label: "METAPHOR",        color: "green",  placeholder: "Drop a vivid metaphor or image…" };
+      return   { label: "METAPHOR",        color: "green",  placeholder: "Drop a vivid metaphor or image…",                helpKey: "METAPHOR" };
     case "THEME_REFERENCE":
-      return   { label: "THEME",           color: "green",  placeholder: "Weave the theme into this bar…" };
+      return   { label: "THEME",           color: "green",  placeholder: "Weave the theme into this bar…",                 helpKey: "THEME_REFERENCE" };
     case "PUNCHLINE":
-      return   { label: "PUNCHLINE",       color: "purple", placeholder: "Land the punchline — make it hit…" };
+      return   { label: "PUNCHLINE",       color: "purple", placeholder: "Land the punchline — make it hit…",              helpKey: "PUNCHLINE" };
     case "CALLBACK":
-      return   { label: "CALLBACK",        color: "pink",   placeholder: "Echo something from earlier in the verse…" };
+      return   { label: "CALLBACK",        color: "pink",   placeholder: "Echo something from earlier in the verse…",      helpKey: "CALLBACK" };
     case "ALLITERATION":
-      return   { label: "ALLITERATION",    color: "amber",  placeholder: "Repeat the same starting sounds…" };
+      return   { label: "ALLITERATION",    color: "amber",  placeholder: "Repeat the same starting sounds…",              helpKey: "ALLITERATION" };
     case "ASSONANCE":
-      return   { label: "ASSONANCE",       color: "cyan",   placeholder: "Let vowel sounds echo across the line…" };
+      return   { label: "ASSONANCE",       color: "cyan",   placeholder: "Let vowel sounds echo across the line…",         helpKey: "ASSONANCE" };
     case "REQUIRED_WORD":
-      return   { label: "USE REQ. WORDS",  color: "amber",  placeholder: "Weave the required words in here…" };
+      return   { label: "USE REQ. WORDS",  color: "amber",  placeholder: "Weave the required words in here…",             helpKey: "REQUIRED_WORD" };
     default:
-      return   { label: "WRITE",           color: "zinc",   placeholder: `Bar ${lineIndex + 1}…` };
+      return   { label: "WRITE",           color: "zinc",   placeholder: `Bar ${lineIndex + 1}…`,                          helpKey: "WRITE" };
   }
 }
 
@@ -152,9 +159,15 @@ function buildMeta(challenge: ChallengeDTO): LineMeta[] {
         label: rw ? `RHYME ↔ L${rw}` : "END RHYME",
         color: "cyan",
         placeholder: rw ? `End rhyming with line ${rw}…` : "End on a rhyming word…",
+        helpKey: rw ? "RHYME_WITH_LINE" : "END_RHYME",
       };
     } else {
-      chip = { label: "SETUP RHYME", color: "yellow", placeholder: "Set up your rhyme — drop the first line…" };
+      chip = {
+        label: "SETUP RHYME",
+        color: "yellow",
+        placeholder: "Set up your rhyme — drop the first line…",
+        helpKey: "SETUP_RHYME",
+      };
     }
 
     return { lineIndex: i, schemeLetter: letter, chip, rhymesWithLine };
@@ -177,6 +190,8 @@ export function LyricPuzzleCanvas({
   disabled = false,
 }: LyricPuzzleCanvasProps) {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [activeHelpKey, setActiveHelpKey] = useState<RuleHelpKey | null>(null);
+
   const meta = buildMeta(challenge);
   const scheme = meta.map((m) => m.schemeLetter);
   const filledCount = lines.filter((l) => l.trim().length > 0).length;
@@ -190,6 +205,12 @@ export function LyricPuzzleCanvas({
     if (e.key === "Backspace" && (lines[i] ?? "") === "" && i > 0) {
       inputRefs.current[i - 1]?.focus();
     }
+  }
+
+  function openHelp(helpKey: RuleHelpKey, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveHelpKey(helpKey);
   }
 
   return (
@@ -222,12 +243,15 @@ export function LyricPuzzleCanvas({
             Required:
           </span>
           {challenge.requiredWords.map((rw) => (
-            <span
+            <button
               key={rw.id}
-              className="text-xs font-mono font-black uppercase tracking-wide text-amber-900 bg-amber-300 border border-amber-400/60 px-2.5 py-0.5 rounded-full"
+              type="button"
+              onClick={(e) => openHelp("REQUIRED_WORD", e)}
+              className="text-xs font-mono font-black uppercase tracking-wide text-amber-900 bg-amber-300 border border-amber-400/60 px-2.5 py-0.5 rounded-full active:scale-95 transition-transform cursor-pointer"
+              title="Tap for help"
             >
-              {rw.word}
-            </span>
+              {rw.word} ?
+            </button>
           ))}
         </div>
       )}
@@ -278,16 +302,20 @@ export function LyricPuzzleCanvas({
 
               {/* Content: chip + input */}
               <div className="flex-1 flex flex-col justify-center gap-1 px-3 py-2.5 min-w-0">
-                {/* Rule chip + rhyme connector */}
+                {/* Rule chip — tappable for help */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span
+                  <button
+                    type="button"
+                    onClick={(e) => openHelp(m.chip.helpKey, e)}
                     className={cn(
                       "text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded-full flex-shrink-0 leading-none",
+                      "active:scale-95 transition-transform cursor-pointer",
                       col.chip, col.text,
                     )}
+                    aria-label={`What is ${m.chip.label}?`}
                   >
-                    {m.chip.label}
-                  </span>
+                    {m.chip.label} ?
+                  </button>
                   {m.rhymesWithLine !== null && (
                     <span className="text-[10px] text-zinc-400 font-mono font-semibold leading-none">
                       ↔ line {m.rhymesWithLine + 1}
@@ -336,6 +364,12 @@ export function LyricPuzzleCanvas({
           </span>
         </div>
       </div>
+
+      {/* Rule help bottom sheet */}
+      <RuleHelpSheet
+        ruleKey={activeHelpKey}
+        onClose={() => setActiveHelpKey(null)}
+      />
     </div>
   );
 }
