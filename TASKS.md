@@ -47,7 +47,7 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 
 | Status | Task | Acceptance Criteria | Files |
 |---|---|---|---|
-| `DONE` | Implement WRITING state in room page | Premium lyric canvas, beat card, challenge card, color legend, sticky submit | `app/room/[roomCode]/page.tsx`, `components/lyric-canvas-editor.tsx`, `components/highlight-legend.tsx` |
+| `DONE` | Implement WRITING state in room page | Puzzle board canvas with scheme tags, rule chips, row tints, per-line inputs; beat card; sticky submit | `app/room/[roomCode]/page.tsx`, `components/lyric-puzzle-canvas.tsx` |
 | `DONE` | Implement `POST /api/rooms/[roomCode]/submit` | Submission + lines saved to store, room shows X/N submitted | `app/api/rooms/[roomCode]/submit/route.ts` |
 | `DONE` | Show submission progress indicator | "2 of 4 submitted" updates in real time via polling | `app/room/[roomCode]/page.tsx` |
 | `DONE` | Host can advance room to WRITING state | `POST /api/rooms/[roomCode]/start` — host-only, LOBBY→WRITING | `app/room/[roomCode]/page.tsx`, `app/api/rooms/[roomCode]/start/route.ts` |

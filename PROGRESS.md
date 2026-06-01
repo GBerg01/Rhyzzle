@@ -87,6 +87,48 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 6 — 2026-06-01
+
+**Goal:** Replace the single-textarea lyric canvas with a per-line puzzle board (Genius-inspired) that shows the full rhyme map before the user types anything.
+
+**What was done:**
+
+- `components/lyric-puzzle-canvas.tsx` — **new component.** Full puzzle board:
+  - Color palette: 8 named colors (yellow, cyan, green, purple, pink, amber, orange, zinc), each with chip/text/row/gutter variants
+  - Scheme letter → color mapping (A=yellow, B=purple, C=cyan, D=pink, E=green, F=orange, X=zinc)
+  - Rule → chip data: `ruleToChip()` maps all ConstraintType values to label + color + placeholder
+  - Rhyme scheme derivation: `deriveScheme()` — (1) explicit RHYME_SCHEME rule string → (2) infer from END_RHYME lineIndex/targetLine pairs → (3) default couplet AABBCCDD
+  - Per-line metadata: `buildMeta()` — priority system (PUNCHLINE=10 → REQUIRED_WORD=1) picks best explicit rule per line; fallback to inferred rhyme chip or SETUP RHYME chip
+  - Renders: scheme summary pills row → required words row → white canvas card
+  - Each canvas row: colored gutter (44px, line number + scheme letter badge) + content area (rule chip + rhyme connector label + transparent `<input type="text">`)
+  - Row tint: colored when empty, fades to white when user types (live)
+  - Enter key advances focus to next input; Backspace on empty returns to previous
+  - Footer: progress dots + "X / N bars" count
+
+- `app/room/[roomCode]/page.tsx` — **WritingView wired to puzzle canvas:**
+  - Imports: removed `LyricCanvasEditor`, `HighlightLegend`, `ChallengeCard`; added `LyricPuzzleCanvas`
+  - State: `lyricsText: string` → `barLines: string[]`
+  - New `useEffect`: initializes `barLines` to `Array(barCount).fill("")` when room enters WRITING and array is empty
+  - New `handleBarLineChange(index, value)` — immutable update helper
+  - `handleSubmit`: now reads from `barLines` instead of splitting a textarea string
+  - `WritingView` props: `lyricsText`/`setLyricsText` → `barLines`/`onLineChange`
+  - `WritingView` body: replaced `ChallengeCard` + required word strip + `LyricCanvasEditor` + `HighlightLegend` with single `LyricPuzzleCanvas`; validation now checks `barLines.every(l => l.trim())`; loading guard while `barLines.length < barCount`
+
+**TypeScript:** `pnpm tsc --noEmit` — clean, no errors.
+**Build:** `pnpm next build` — compiles cleanly, `/room/[roomCode]` page = 8.08 kB.
+
+**Status after this session:**
+WRITING state now shows the full colorful puzzle board immediately on load. Each bar line displays its scheme letter, rule chip, and placeholder before the user types. Row tints fade as bars are filled. Submit flow unchanged — still POSTs `{ lines: string[] }` to the existing API.
+
+**Next 5 tasks:**
+1. VOTING state — host "End Writing" button (WRITING→VOTING), anonymous submission display, one vote per participant
+2. `POST /api/rooms/[roomCode]/vote` — store vote, prevent double-voting
+3. REVEAL state — sorted by votes, names revealed, share card
+4. Connect PostgreSQL: `.env.local` → `pnpm db:push` → `pnpm db:seed`
+5. Replace in-memory store with real Prisma operations
+
+---
+
 ## Session 5 — 2026-06-01
 
 **Goal:** Redesign the WRITING state UI to feel like a premium mobile rap puzzle game.

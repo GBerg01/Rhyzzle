@@ -4,9 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { BeatPlayer } from "@/components/beat-player";
-import { ChallengeCard } from "@/components/challenge-card";
-import { LyricCanvasEditor } from "@/components/lyric-canvas-editor";
-import { HighlightLegend } from "@/components/highlight-legend";
+import { LyricPuzzleCanvas } from "@/components/lyric-puzzle-canvas";
 import type { RoomStateDTO } from "@/lib/types";
 import { getRoomUrl, cn } from "@/lib/utils";
 
@@ -26,8 +24,8 @@ export default function RoomPage() {
   const [nickname, setNickname] = useState("");
   const [isJoining, setIsJoining] = useState(false);
 
-  // Writing state — stored as a single string, split to lines on submit
-  const [lyricsText, setLyricsText] = useState("");
+  // Writing state — one string per bar line
+  const [barLines, setBarLines] = useState<string[]>([]);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
@@ -80,6 +78,13 @@ export default function RoomPage() {
     }
   }, [roomState?.currentParticipantHasSubmitted, hasSubmitted]);
 
+  // Initialize barLines array when room enters WRITING state
+  useEffect(() => {
+    if (roomState?.status === "WRITING" && barLines.length === 0 && roomState.challenge) {
+      setBarLines(Array(roomState.challenge.barCount).fill(""));
+    }
+  }, [roomState?.status, roomState?.challenge?.barCount, barLines.length]);
+
   async function handleJoin() {
     if (!nickname.trim()) return;
     setIsJoining(true);
@@ -120,11 +125,16 @@ export default function RoomPage() {
     }
   }
 
+  function handleBarLineChange(index: number, value: string) {
+    setBarLines((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+  }
+
   async function handleSubmit() {
-    const lines = lyricsText
-      .split("\n")
-      .map((l) => l.trimEnd())
-      .filter((l) => l.trim().length > 0);
+    const lines = barLines.map((l) => l.trimEnd()).filter((l) => l.trim().length > 0);
     if (lines.length === 0) return;
     setIsSubmitting(true);
     try {
@@ -271,8 +281,8 @@ export default function RoomPage() {
           <WritingView
             beat={beat}
             challenge={challenge}
-            lyricsText={lyricsText}
-            setLyricsText={setLyricsText}
+            barLines={barLines}
+            onLineChange={handleBarLineChange}
             hasSubmitted={hasSubmitted}
             isSubmitting={isSubmitting}
             onSubmit={handleSubmit}
@@ -536,8 +546,8 @@ function LobbyView({
 function WritingView({
   beat,
   challenge,
-  lyricsText,
-  setLyricsText,
+  barLines,
+  onLineChange,
   hasSubmitted,
   isSubmitting,
   onSubmit,
@@ -546,8 +556,8 @@ function WritingView({
 }: {
   beat: RoomStateDTO["beat"];
   challenge: RoomStateDTO["challenge"];
-  lyricsText: string;
-  setLyricsText: (text: string) => void;
+  barLines: string[];
+  onLineChange: (index: number, value: string) => void;
   hasSubmitted: boolean;
   isSubmitting: boolean;
   onSubmit: () => void;
@@ -555,31 +565,20 @@ function WritingView({
   totalCount: number;
 }) {
   const { barCount } = challenge;
-  const nonEmptyCount = lyricsText
-    .split("\n")
-    .filter((l) => l.trim().length > 0).length;
-  const isValid = nonEmptyCount === barCount;
-  const tooMany = nonEmptyCount > barCount;
-
-  let validationNote = "";
-  if (nonEmptyCount > 0 && !isValid) {
-    if (tooMany) validationNote = `Too many bars — trim to ${barCount}`;
-    else validationNote = `${barCount - nonEmptyCount} more bar${barCount - nonEmptyCount !== 1 ? "s" : ""} needed`;
-  }
+  const filledCount = barLines.filter((l) => l.trim().length > 0).length;
+  const isValid = barLines.length === barCount && barLines.every((l) => l.trim().length > 0);
 
   // ── Waiting / submitted state ────────────────────────────────────────────
   if (hasSubmitted) {
     const pct = totalCount > 0 ? (submittedCount / totalCount) * 100 : 0;
     return (
       <div className="space-y-4">
-        {/* Submitted card */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
           <div className="text-5xl mb-4">🔥</div>
           <p className="font-black text-xl mb-1 text-white">Bars submitted!</p>
           <p className="text-zinc-500 text-sm mb-5">
             Waiting for the crew... {submittedCount} / {totalCount} done
           </p>
-          {/* Progress bar */}
           <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
             <div
               className="h-full bg-violet-500 rounded-full transition-all duration-500"
@@ -590,8 +589,6 @@ function WritingView({
             Host will move to voting when everyone&apos;s ready.
           </p>
         </div>
-
-        {/* Beat still visible while waiting */}
         <BeatPlayer beat={beat} />
       </div>
     );
@@ -600,7 +597,6 @@ function WritingView({
   // ── Writing state ────────────────────────────────────────────────────────
   return (
     <>
-      {/* Scrollable content with padding for fixed submit button */}
       <div className="space-y-4 pb-36">
         {/* Phase header */}
         <div className="flex items-center justify-between">
@@ -618,34 +614,19 @@ function WritingView({
         {/* Beat player */}
         <BeatPlayer beat={beat} />
 
-        {/* Challenge rules */}
-        <ChallengeCard challenge={challenge} />
-
-        {/* Required word strip (if applicable) */}
-        {challenge.requiredWords.length > 0 && (
-          <div className="flex items-center gap-2 flex-wrap px-1">
-            <span className="text-xs text-zinc-500">Required:</span>
-            {challenge.requiredWords.map((rw) => (
-              <span
-                key={rw.id}
-                className="text-xs font-mono font-bold uppercase text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2.5 py-0.5 rounded-full tracking-wide"
-              >
-                {rw.word}
-              </span>
-            ))}
+        {/* Puzzle canvas — scheme pills, required words, per-line rule chips + inputs */}
+        {barLines.length === barCount ? (
+          <LyricPuzzleCanvas
+            challenge={challenge}
+            lines={barLines}
+            onLineChange={onLineChange}
+            disabled={isSubmitting}
+          />
+        ) : (
+          <div className="h-32 flex items-center justify-center">
+            <p className="text-zinc-600 text-sm">Loading canvas...</p>
           </div>
         )}
-
-        {/* Lyric canvas */}
-        <LyricCanvasEditor
-          barCount={barCount}
-          value={lyricsText}
-          onChange={setLyricsText}
-          disabled={isSubmitting}
-        />
-
-        {/* Highlight color legend */}
-        <HighlightLegend />
       </div>
 
       {/* Fixed sticky submit button */}
@@ -657,9 +638,9 @@ function WritingView({
               "linear-gradient(to top, rgb(9,9,11) 60%, rgba(9,9,11,0.85) 85%, transparent 100%)",
           }}
         >
-          {validationNote && (
+          {!isValid && filledCount > 0 && (
             <p className="text-xs text-amber-400 text-center mb-2">
-              {validationNote}
+              {barCount - filledCount} more bar{barCount - filledCount !== 1 ? "s" : ""} needed
             </p>
           )}
           <button
