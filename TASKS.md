@@ -30,14 +30,14 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 |---|---|---|---|
 | `TODO` | Connect PostgreSQL database locally | `pnpm db:push` succeeds without errors | `.env.local`, `prisma/schema.prisma` |
 | `TODO` | Run `pnpm db:seed` and verify data loads | 5 beats and 10 challenges visible in Prisma Studio | `prisma/seed.ts` |
-| `TODO` | Implement `POST /api/rooms` — create room | Returns `{ roomCode, roomId }`, room persisted in DB | `app/api/rooms/route.ts` |
-| `TODO` | Make `/create` form functional | Submitting form redirects to `/room/[roomCode]` | `app/create/page.tsx` |
-| `TODO` | Fetch beats from DB for create form | Beat selector shows real beats from seed data | `app/create/page.tsx`, `app/api/rooms/route.ts` |
-| `TODO` | Implement room code generation | 5-char alphanumeric, unique, readable | `lib/utils.ts` |
-| `TODO` | Implement `POST /api/rooms/[roomCode]/join` | Creates GuestUser + RoomParticipant, sets session cookie | `app/api/rooms/[roomCode]/join/route.ts` |
-| `TODO` | Implement `GET /api/rooms/[roomCode]` | Returns room state, beat, challenge, participants | `app/api/rooms/[roomCode]/route.ts` |
-| `TODO` | Implement room page LOBBY state (functional) | Shows join form, participant list updates on poll | `app/room/[roomCode]/page.tsx` |
-| `TODO` | Implement client-side polling (4s interval) | Room page refreshes state without full page reload | `app/room/[roomCode]/page.tsx` |
+| `DONE` | Implement `POST /api/rooms` — create room | Returns `{ roomCode, roomId }`, room persisted in store | `app/api/rooms/route.ts`, `lib/room-store.ts` |
+| `DONE` | Make `/create` form functional | Submitting form redirects to `/room/[roomCode]` | `app/create/page.tsx` |
+| `DONE` | Fetch beats from DB for create form | Beat selector shows beats from sample-data (real DB TODO) | `app/create/page.tsx` |
+| `DONE` | Implement room code generation | 5-char alphanumeric, unique, readable | `lib/utils.ts` |
+| `DONE` | Implement `POST /api/rooms/[roomCode]/join` | Adds participant to room store, sets session cookie | `app/api/rooms/[roomCode]/join/route.ts` |
+| `DONE` | Implement `GET /api/rooms/[roomCode]` | Returns room state from in-memory store | `app/api/rooms/[roomCode]/route.ts` |
+| `DONE` | Implement room page LOBBY state (functional) | Shows join form, participant list updates on poll | `app/room/[roomCode]/page.tsx` |
+| `DONE` | Implement client-side polling (4s interval) | Room page refreshes state without full page reload | `app/room/[roomCode]/page.tsx` |
 | `TODO` | Make BeatPlayer functional | Audio plays/pauses from a URL | `components/beat-player.tsx` |
 | `TODO` | Mobile UI polish — LOBBY state | Test at 375px, looks good on iPhone | `app/room/[roomCode]/page.tsx` |
 

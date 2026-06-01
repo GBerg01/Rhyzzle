@@ -10,6 +10,28 @@ Format:
 
 ---
 
+## 2026-06-01 — In-memory room store as DB bridge (dev only)
+
+**Decision:** Use a global `Map<string, RoomStateDTO>` in `lib/room-store.ts` as a temporary in-memory store for rooms during development, before PostgreSQL is connected.
+
+**Reason:** The full create → room flow was broken because `POST /api/rooms` generated codes but never persisted anything, while `GET /api/rooms/[roomCode]` only served the hardcoded "TEST1" seed room. The user needed the flow working immediately without having to set up PostgreSQL first.
+
+**Tradeoffs:** Rooms reset when the dev server restarts. Not suitable for production or multi-process deployments. Clearly labeled in code as dev-only with TODO comments pointing to the Prisma replacement. To be deleted once Phase 1 DB work is complete.
+
+**When to remove:** Delete `lib/room-store.ts` and replace store calls with `prisma.room.findUnique/create` once `DATABASE_URL` is set and `pnpm db:push` has been run.
+
+---
+
+## 2026-06-01 — Canonical room code field is `roomCode` on the `Room` model
+
+**Decision:** The shareable room code is stored in the `roomCode` field on the `Room` Prisma model (not `code`, `shareCode`, or anything else). All routes use `roomCode` consistently. Codes are uppercased on write and lookup.
+
+**Reason:** `roomCode` is the field defined in `prisma/schema.prisma` with `@unique`. Using a consistent name avoids the class of bugs where create writes to one field and lookup reads from another. Uppercasing on both sides prevents case-sensitivity mismatches.
+
+**How to apply:** `prisma.room.findUnique({ where: { roomCode: code.toUpperCase() } })`. `generateRoomCode()` in `lib/utils.ts` already returns uppercase.
+
+---
+
 ## 2026-06-01 — Use Next.js App Router (not Pages Router)
 
 **Decision:** Use Next.js 15 with the App Router.

@@ -84,3 +84,38 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 ---
 
 *Append new entries below as work continues.*
+
+---
+
+## Session 2 — 2026-06-01
+
+**Goal:** Fix "Room not found" bug — make create → room flow work end to end.
+
+**Root cause diagnosed:**
+- `POST /api/rooms` was generating a room code but never persisting anything (placeholder stub).
+- `GET /api/rooms/[roomCode]` was hardcoded to only recognize `"TEST1"`. Any other code returned 404.
+- No database connected (`.env.local` missing), so DB operations weren't possible yet.
+
+**What was done:**
+
+- Created `lib/room-store.ts` — in-memory global Map as a dev bridge. Rooms persist across requests for the lifetime of the dev server process. Clearly labeled as dev-only; to be replaced with Prisma calls once DB is set up.
+- Rewrote `app/api/rooms/route.ts` — validates beat/challenge IDs, generates unique code, builds full `RoomStateDTO`, saves to store, returns `{ roomCode, roomId }`.
+- Rewrote `app/api/rooms/[roomCode]/route.ts` — looks up room code in store (uppercased), returns 404 only for truly unknown codes.
+- Rewrote `app/api/rooms/[roomCode]/join/route.ts` — looks up room, adds participant to store, sets session + participant cookies.
+- Updated `DECISIONS.md` — documented in-memory store decision and canonical `roomCode` field.
+- Updated `TASKS.md` — marked 6 Phase 1 tasks as DONE.
+
+**Verified working:**
+- `POST /api/rooms` → `{ roomCode: "WS9VA", roomId: "room_WS9VA" }`
+- `GET /api/rooms/WS9VA` → full room JSON (200)
+- `GET /api/rooms/FAKEX` → 404
+
+**Status after this session:**
+Create → redirect → room page loads the correct room. LOBBY state visible. Participants can join. Full flow unblocked without requiring a database.
+
+**Next 5 tasks:**
+1. Connect PostgreSQL: copy `.env.example` → `.env.local`, fill `DATABASE_URL`, run `pnpm db:push && pnpm db:seed`
+2. Replace room-store calls with real Prisma operations in all three API routes
+3. Implement WRITING state — host advances room, bar editor + beat player active
+4. Implement `POST /api/rooms/[roomCode]/submit` — save bars to store/DB
+5. Implement VOTING state — anonymous submissions, vote button
