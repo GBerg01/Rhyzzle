@@ -1,0 +1,455 @@
+// Rhyzzle — Prisma Schema
+// Full data model for the daily rap puzzle and group-chat writing game.
+// See ARCHITECTURE.md for model descriptions and relationships.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth ──────────────────────────────────────────────────────────────────
+
+// Real authenticated user (Phase 6 — not used in MVP)
+model User {
+  id          String   @id @default(cuid())
+  email       String?  @unique
+  username    String?  @unique
+  displayName String?
+  avatarUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  guestUsers      GuestUser[]
+  hostedRooms     Room[]           @relation("RoomHost")
+  roomParticipants RoomParticipant[]
+  submissions     Submission[]
+  votes           Vote[]
+  likes           Like[]
+  comments        Comment[]
+  saves           Save[]
+  shareEvents     ShareEvent[]
+
+  @@map("users")
+}
+
+// Anonymous guest user — created when a player joins with a nickname
+model GuestUser {
+  id        String   @id @default(cuid())
+  nickname  String
+  sessionId String   @unique // browser session token stored in cookie
+  userId    String?           // linked to real User if they sign up later
+  createdAt DateTime @default(now())
+
+  user             User?             @relation(fields: [userId], references: [id])
+  roomParticipants RoomParticipant[]
+  submissions      Submission[]
+  votes            Vote[]
+  comments         Comment[]
+  shareEvents      ShareEvent[]
+
+  @@index([sessionId])
+  @@map("guest_users")
+}
+
+// ─── Groups (Future — designed now, used in Phase 6) ──────────────────────
+
+// A reusable crew/squad that can be invited into rooms
+model Group {
+  id          String   @id @default(cuid())
+  name        String
+  createdById String?
+  inviteCode  String   @unique @default(cuid())
+  createdAt   DateTime @default(now())
+
+  members GroupMember[]
+  rooms   Room[]
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id       String    @id @default(cuid())
+  groupId  String
+  userId   String?
+  guestId  String?
+  role     GroupRole @default(MEMBER)
+  joinedAt DateTime  @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("group_members")
+}
+
+enum GroupRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+// ─── Beats ─────────────────────────────────────────────────────────────────
+
+model Beat {
+  id           String   @id @default(cuid())
+  title        String
+  artist       String?  // producer name
+  audioUrl     String   // URL to audio file
+  bpm          Int?
+  keySignature String?
+  genre        String?
+  durationSec  Int?
+  coverUrl     String?
+  tags         String[] // ["trap", "boom-bap", "lo-fi"]
+  isPublic     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  rooms           Room[]
+  dailyChallenges DailyChallenge[]
+
+  @@map("beats")
+}
+
+// ─── Challenges ────────────────────────────────────────────────────────────
+
+// A writing challenge template — reusable across rooms and daily challenges
+model Challenge {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  barCount    Int      @default(4) // 4, 6, or 8 bars
+  isTemplate  Boolean  @default(false) // reusable preset templates
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  rules           ChallengeRule[]
+  requiredWords   RequiredWord[]
+  rooms           Room[]
+  dailyChallenges DailyChallenge[]
+
+  @@map("challenges")
+}
+
+// A single constraint rule within a challenge
+model ChallengeRule {
+  id          String         @id @default(cuid())
+  challengeId String
+  type        ConstraintType
+  lineIndex   Int?           // which line this applies to (0-indexed), null = all lines
+  targetLine  Int?           // for CALLBACK: the line this one must call back to
+  rhymeScheme String?        // e.g. "AABB", "ABAB" — for RHYME_SCHEME rules
+  theme       String?        // e.g. "hunger" — for THEME_REFERENCE rules
+  description String         // human-readable: "Line 3 must be a metaphor"
+  sortOrder   Int            @default(0)
+
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@map("challenge_rules")
+}
+
+// A word that must appear somewhere in the submission
+model RequiredWord {
+  id          String @id @default(cuid())
+  challengeId String
+  word        String
+  sortOrder   Int    @default(0)
+
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@map("required_words")
+}
+
+enum ConstraintType {
+  LINE_COUNT
+  END_RHYME
+  INTERNAL_RHYME
+  LINE_START_RHYMES_WITH_PREVIOUS_END
+  METAPHOR
+  PUNCHLINE
+  CALLBACK
+  ALLITERATION
+  ASSONANCE
+  REQUIRED_WORD
+  THEME_REFERENCE
+  RHYME_SCHEME
+}
+
+// ─── Rooms ─────────────────────────────────────────────────────────────────
+
+model Room {
+  id              String      @id @default(cuid())
+  roomCode        String      @unique // short human-readable code e.g. "XK9F2"
+  name            String?
+  hostId          String?     // null = anonymous/guest host
+  guestHostId     String?     // guest user who created the room
+  groupId         String?
+  beatId          String
+  challengeId     String
+  status          RoomStatus  @default(LOBBY)
+  privacy         RoomPrivacy @default(PRIVATE)
+  votingMode      VotingMode  @default(ANONYMOUS)
+  maxParticipants Int?
+  deadline        DateTime?
+  revealAt        DateTime?   // auto-advance to REVEAL at this time
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  host         User?             @relation("RoomHost", fields: [hostId], references: [id])
+  beat         Beat              @relation(fields: [beatId], references: [id])
+  challenge    Challenge         @relation(fields: [challengeId], references: [id])
+  group        Group?            @relation(fields: [groupId], references: [id])
+  participants RoomParticipant[]
+  submissions  Submission[]
+
+  @@index([roomCode])
+  @@index([status])
+  @@map("rooms")
+}
+
+enum RoomStatus {
+  LOBBY   // waiting for participants to join
+  WRITING // participants are writing bars
+  VOTING  // voting is open, submissions shown anonymously
+  REVEAL  // winner announced, submissions de-anonymized
+  CLOSED  // archived, read-only
+}
+
+enum RoomPrivacy {
+  PRIVATE
+  PUBLIC
+}
+
+enum VotingMode {
+  ANONYMOUS // submission author hidden during voting
+  OPEN      // author name visible during voting
+}
+
+// A participant in a room — links room to either a real User or a GuestUser
+model RoomParticipant {
+  id          String   @id @default(cuid())
+  roomId      String
+  userId      String?
+  guestUserId String?
+  nickname    String
+  joinedAt    DateTime @default(now())
+  isHost      Boolean  @default(false)
+
+  room       Room        @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user       User?       @relation(fields: [userId], references: [id])
+  guestUser  GuestUser?  @relation(fields: [guestUserId], references: [id])
+  submission Submission?
+  castVotes  Vote[]
+
+  @@unique([roomId, userId])
+  @@unique([roomId, guestUserId])
+  @@map("room_participants")
+}
+
+// ─── Submissions ───────────────────────────────────────────────────────────
+
+model Submission {
+  id             String   @id @default(cuid())
+  roomId         String
+  participantId  String   @unique // one submission per participant per room
+  userId         String?
+  guestUserId    String?
+  rawText        String   // full submission as a single string
+  isAnonymous    Boolean  @default(true)  // true during voting phase
+  isPublic       Boolean  @default(false) // true for daily/discover submissions
+
+  // Engagement counts — incremented on each action, used for discovery scoring
+  likesCount    Int   @default(0)
+  commentsCount Int   @default(0)
+  votesCount    Int   @default(0)
+  sharesCount   Int   @default(0)
+  savesCount    Int   @default(0)
+
+  // Pre-computed discovery scores — recalculated on engagement events
+  engagementScore Float @default(0)
+  hotScore        Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  room        Room            @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  participant RoomParticipant @relation(fields: [participantId], references: [id])
+  user        User?           @relation(fields: [userId], references: [id])
+  guestUser   GuestUser?      @relation(fields: [guestUserId], references: [id])
+
+  lines             SubmissionLine[]
+  votes             Vote[]
+  likes             Like[]
+  comments          Comment[]
+  saves             Save[]
+  shareEvents       ShareEvent[]
+  constraintResults ConstraintResult[]
+
+  @@index([roomId])
+  @@index([hotScore])
+  @@index([engagementScore])
+  @@index([createdAt])
+  @@map("submissions")
+}
+
+// A single bar/line within a submission
+model SubmissionLine {
+  id           String @id @default(cuid())
+  submissionId String
+  lineIndex    Int    // 0-based line number
+  text         String
+
+  submission     Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  highlightSpans HighlightSpan[]
+
+  @@unique([submissionId, lineIndex])
+  @@map("submission_lines")
+}
+
+// ─── Voting ────────────────────────────────────────────────────────────────
+
+model Vote {
+  id            String   @id @default(cuid())
+  submissionId  String
+  participantId String
+  userId        String?
+  guestUserId   String?
+  createdAt     DateTime @default(now())
+
+  submission  Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  participant RoomParticipant @relation(fields: [participantId], references: [id])
+  user        User?           @relation(fields: [userId], references: [id])
+  guestUser   GuestUser?      @relation(fields: [guestUserId], references: [id])
+
+  @@unique([submissionId, participantId]) // one vote per participant per submission
+  @@map("votes")
+}
+
+// ─── Engagement (Public Submissions) ──────────────────────────────────────
+
+model Like {
+  id           String   @id @default(cuid())
+  submissionId String
+  userId       String?
+  sessionId    String?  // for guest likes
+  createdAt    DateTime @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [userId], references: [id])
+
+  @@unique([submissionId, userId])
+  @@unique([submissionId, sessionId])
+  @@map("likes")
+}
+
+model Comment {
+  id           String   @id @default(cuid())
+  submissionId String
+  userId       String?
+  guestUserId  String?
+  nickname     String?  // display name for guest comments
+  text         String
+  createdAt    DateTime @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [userId], references: [id])
+  guestUser  GuestUser? @relation(fields: [guestUserId], references: [id])
+
+  @@map("comments")
+}
+
+model Save {
+  id           String   @id @default(cuid())
+  submissionId String
+  userId       String?
+  sessionId    String?  // for guest saves
+  createdAt    DateTime @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [userId], references: [id])
+
+  @@unique([submissionId, userId])
+  @@unique([submissionId, sessionId])
+  @@map("saves")
+}
+
+model ShareEvent {
+  id           String   @id @default(cuid())
+  submissionId String
+  userId       String?
+  guestUserId  String?
+  platform     String?  // "imessage" | "discord" | "snapchat" | "instagram" | "twitter" | "copy"
+  createdAt    DateTime @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [userId], references: [id])
+  guestUser  GuestUser? @relation(fields: [guestUserId], references: [id])
+
+  @@map("share_events")
+}
+
+// ─── Daily Challenge ───────────────────────────────────────────────────────
+
+model DailyChallenge {
+  id          String   @id @default(cuid())
+  date        DateTime @unique // the calendar date this challenge is active
+  beatId      String
+  challengeId String
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  beat      Beat      @relation(fields: [beatId], references: [id])
+  challenge Challenge @relation(fields: [challengeId], references: [id])
+
+  @@index([date])
+  @@map("daily_challenges")
+}
+
+// ─── AI Highlighting (Phase 5 — schema ready, logic deferred) ─────────────
+
+// A highlighted text range within a single submitted line
+model HighlightSpan {
+  id               String            @id @default(cuid())
+  submissionLineId String
+  startIndex       Int               // character start index within line text
+  endIndex         Int               // character end index (exclusive)
+  category         HighlightCategory
+  color            String            // CSS color reference (see AGENTS.md)
+  confidence       Float?            // AI confidence 0.0–1.0
+  explanation      String?           // AI-generated explanation
+  createdAt        DateTime          @default(now())
+
+  submissionLine SubmissionLine @relation(fields: [submissionLineId], references: [id], onDelete: Cascade)
+
+  @@map("highlight_spans")
+}
+
+enum HighlightCategory {
+  END_RHYME
+  INTERNAL_RHYME
+  ALLITERATION
+  ASSONANCE
+  METAPHOR
+  PUNCHLINE
+  DOUBLE_MEANING
+  CALLBACK
+  REQUIRED_WORD
+  FAILED_REQUIREMENT
+}
+
+// Result of evaluating a ChallengeRule against a specific submission
+model ConstraintResult {
+  id           String         @id @default(cuid())
+  submissionId String
+  ruleType     ConstraintType
+  lineIndex    Int?           // which line was evaluated
+  passed       Boolean        // did the submission satisfy this constraint?
+  confidence   Float?         // AI confidence 0.0–1.0
+  explanation  String?        // explanation for pass or fail
+  createdAt    DateTime       @default(now())
+
+  submission Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@map("constraint_results")
+}
