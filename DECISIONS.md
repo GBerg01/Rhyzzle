@@ -156,6 +156,44 @@ Format:
 
 ---
 
+## 2026-06-01 — Voting in-memory, consistent with submission store
+
+**Decision:** Votes are stored in a third global Map (`__rhyzzleVotes`) in `lib/room-store.ts`, keyed by `${ROOMCODE}:${participantId}`. One vote per participant per room.
+
+**Reason:** The app is not yet connected to PostgreSQL. Keeping votes in the same in-memory pattern as rooms and submissions makes the whole WRITING→VOTING→REVEAL flow testable without a database. Clearly marked as a dev bridge to be replaced with Prisma `Vote` model operations.
+
+**Tradeoffs:** Vote data resets on dev server restart. Fine for MVP testing.
+
+**When to replace:** When PostgreSQL is connected (`pnpm db:push`), replace with `prisma.vote.create()` and `prisma.vote.findMany()` in the vote, start-voting, and reveal routes.
+
+---
+
+## 2026-06-01 — Vote counts hidden during VOTING, revealed at REVEAL
+
+**Decision:** `GET /api/rooms/[roomCode]` returns `voteCount: 0` for all submissions during VOTING state. Real counts only appear in REVEAL.
+
+**Reason:** Showing live vote counts during voting creates a bandwagon effect — later voters will pile onto the leader. Anonymous voting with hidden counts ensures each participant votes on the bars alone.
+
+**Tradeoffs:** Participants can't see real-time vote progress during voting. Only the aggregate `votedCount` (how many people have voted) is shown.
+
+---
+
+## 2026-06-01 — isOwnSubmission computed server-side
+
+**Decision:** Submissions in VOTING state have `isOwnSubmission: boolean` set by the server based on the `rhyzzle_participant` cookie, rather than exposing `participantId` to the client.
+
+**Reason:** If we returned the real `participantId` in VOTING state, a client could compare it against `currentParticipantId` to identify their own submission — but they could also try to correlate other participants to submissions by watching who's joined. Keeping `participantId` as an empty string during VOTING and using a server-computed `isOwnSubmission` field is cleaner and safer.
+
+---
+
+## 2026-06-01 — Tie handling: show all tied winners
+
+**Decision:** If multiple submissions share the highest vote count, all are shown as winners ("It's a tie!") in the REVEAL screen. No tiebreaker logic.
+
+**Reason:** Tiebreakers add complexity and subjective rules. Showing multiple winners is the most honest and lowest-friction MVP behavior.
+
+---
+
 ## 2026-06-01 — Tailwind CSS only (no styled-components, no CSS modules)
 
 **Decision:** Style everything with Tailwind CSS utility classes. Use shadcn/ui selectively for complex components (modals, selects) by copying component code.

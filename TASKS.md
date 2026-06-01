@@ -51,12 +51,12 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 | `DONE` | Implement `POST /api/rooms/[roomCode]/submit` | Submission + lines saved to store, room shows X/N submitted | `app/api/rooms/[roomCode]/submit/route.ts` |
 | `DONE` | Show submission progress indicator | "2 of 4 submitted" updates in real time via polling | `app/room/[roomCode]/page.tsx` |
 | `DONE` | Host can advance room to WRITING state | `POST /api/rooms/[roomCode]/start` — host-only, LOBBY→WRITING | `app/room/[roomCode]/page.tsx`, `app/api/rooms/[roomCode]/start/route.ts` |
-| `TODO` | Host can advance room to VOTING state | Host-only button that transitions WRITING → VOTING | `app/room/[roomCode]/page.tsx`, `app/api/rooms/[roomCode]/route.ts` |
-| `TODO` | Implement VOTING state | Shows anonymous submissions, vote button visible | `app/room/[roomCode]/page.tsx` |
-| `TODO` | Implement `POST /api/rooms/[roomCode]/vote` | Vote recorded, prevents double-voting | `app/api/rooms/[roomCode]/vote/route.ts` |
-| `TODO` | Host can advance room to REVEAL state | VOTING → REVEAL after all voted or host force-advances | `app/room/[roomCode]/page.tsx` |
-| `TODO` | Implement REVEAL state | Winner highlighted, submissions de-anonymized with nicknames | `app/room/[roomCode]/page.tsx` |
-| `TODO` | Basic result share card | Text/image of winner + their bars | `app/room/[roomCode]/page.tsx` |
+| `DONE` | Host can advance room to VOTING state | `POST /api/rooms/[roomCode]/start-voting` — host-only, WRITING→VOTING, needs ≥2 submissions | `app/room/[roomCode]/page.tsx`, `app/api/rooms/[roomCode]/start-voting/route.ts` |
+| `DONE` | Implement VOTING state | Anonymous submission cards, vote button, own submission locked, host reveal button | `app/room/[roomCode]/page.tsx` |
+| `DONE` | Implement `POST /api/rooms/[roomCode]/vote` | Vote stored in memory, prevents double-vote and self-vote | `app/api/rooms/[roomCode]/vote/route.ts` |
+| `DONE` | Host can advance room to REVEAL state | `POST /api/rooms/[roomCode]/reveal` — host-only, VOTING→REVEAL, needs ≥1 vote | `app/room/[roomCode]/page.tsx`, `app/api/rooms/[roomCode]/reveal/route.ts` |
+| `DONE` | Implement REVEAL state | Winner highlighted, tied winners handled, all submissions de-anonymized | `app/room/[roomCode]/page.tsx` |
+| `DONE` | Basic result share card | Share Results button, Create New Room CTA | `app/room/[roomCode]/page.tsx` |
 | `TODO` | End-to-end integration test | Full flow: create → join (3 users) → write → vote → reveal | All |
 
 ---

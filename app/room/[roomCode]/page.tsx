@@ -34,6 +34,8 @@ export default function RoomPage() {
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [hasVoted, setHasVoted] = useState(false);
   const [isVoting, setIsVoting] = useState(false);
+  const [isStartingVoting, setIsStartingVoting] = useState(false);
+  const [isRevealing, setIsRevealing] = useState(false);
 
   // Share UI state
   const [copied, setCopied] = useState(false);
@@ -77,6 +79,13 @@ export default function RoomPage() {
       setHasSubmitted(true);
     }
   }, [roomState?.currentParticipantHasSubmitted, hasSubmitted]);
+
+  // Hydrate voted state from server — prevents voted state resetting on refresh
+  useEffect(() => {
+    if (roomState?.currentParticipantHasVoted && !hasVoted) {
+      setHasVoted(true);
+    }
+  }, [roomState?.currentParticipantHasVoted, hasVoted]);
 
   // Initialize barLines array when room enters WRITING state
   useEffect(() => {
@@ -122,6 +131,38 @@ export default function RoomPage() {
       setError(err instanceof Error ? err.message : "Failed to start game");
     } finally {
       setIsStarting(false);
+    }
+  }
+
+  async function handleStartVoting() {
+    setIsStartingVoting(true);
+    try {
+      const res = await fetch(`/api/rooms/${roomCode}/start-voting`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Failed to start voting");
+      }
+      await fetchRoom();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start voting");
+    } finally {
+      setIsStartingVoting(false);
+    }
+  }
+
+  async function handleReveal() {
+    setIsRevealing(true);
+    try {
+      const res = await fetch(`/api/rooms/${roomCode}/reveal`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Failed to reveal");
+      }
+      await fetchRoom();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reveal winner");
+    } finally {
+      setIsRevealing(false);
     }
   }
 
@@ -288,6 +329,9 @@ export default function RoomPage() {
             onSubmit={handleSubmit}
             submittedCount={submittedCount}
             totalCount={totalCount}
+            isHost={isHost}
+            onStartVoting={handleStartVoting}
+            isStartingVoting={isStartingVoting}
           />
         )}
 
@@ -300,6 +344,11 @@ export default function RoomPage() {
             hasVoted={hasVoted}
             isVoting={isVoting}
             onVote={handleVote}
+            isHost={isHost}
+            onReveal={handleReveal}
+            isRevealing={isRevealing}
+            votedCount={roomState.votedCount ?? 0}
+            totalCount={totalCount}
           />
         )}
 
@@ -553,6 +602,9 @@ function WritingView({
   onSubmit,
   submittedCount,
   totalCount,
+  isHost,
+  onStartVoting,
+  isStartingVoting,
 }: {
   beat: RoomStateDTO["beat"];
   challenge: RoomStateDTO["challenge"];
@@ -563,31 +615,54 @@ function WritingView({
   onSubmit: () => void;
   submittedCount: number;
   totalCount: number;
+  isHost: boolean;
+  onStartVoting: () => void;
+  isStartingVoting: boolean;
 }) {
   const { barCount } = challenge;
   const filledCount = barLines.filter((l) => l.trim().length > 0).length;
   const isValid = barLines.length === barCount && barLines.every((l) => l.trim().length > 0);
+  const canStartVoting = isHost && submittedCount >= 2;
 
   // ── Waiting / submitted state ────────────────────────────────────────────
   if (hasSubmitted) {
     const pct = totalCount > 0 ? (submittedCount / totalCount) * 100 : 0;
     return (
       <div className="space-y-4">
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
-          <div className="text-5xl mb-4">🔥</div>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 text-center">
+          <div className="text-4xl mb-3">🔥</div>
           <p className="font-black text-xl mb-1 text-white">Bars submitted!</p>
-          <p className="text-zinc-500 text-sm mb-5">
-            Waiting for the crew... {submittedCount} / {totalCount} done
+          <p className="text-zinc-500 text-sm mb-4">
+            {submittedCount} / {totalCount} submitted
           </p>
-          <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-4">
             <div
               className="h-full bg-violet-500 rounded-full transition-all duration-500"
               style={{ width: `${pct}%` }}
             />
           </div>
-          <p className="text-xs text-zinc-600 mt-3">
-            Host will move to voting when everyone&apos;s ready.
-          </p>
+          {canStartVoting ? (
+            <>
+              <p className="text-xs text-green-400 font-semibold mb-3">
+                {submittedCount >= totalCount ? "Everyone's in — ready to vote!" : `${submittedCount} submissions in. You can start voting now.`}
+              </p>
+              <button
+                onClick={onStartVoting}
+                disabled={isStartingVoting}
+                className="w-full bg-blue-500 text-white font-black text-base py-3.5 rounded-2xl hover:bg-blue-400 active:scale-95 transition-all disabled:opacity-50"
+              >
+                {isStartingVoting ? "Starting..." : "Start Voting →"}
+              </button>
+            </>
+          ) : isHost ? (
+            <p className="text-xs text-zinc-600">
+              Need at least 2 submissions to start voting.
+            </p>
+          ) : (
+            <p className="text-xs text-zinc-600">
+              Host will start voting when ready.
+            </p>
+          )}
         </div>
         <BeatPlayer beat={beat} />
       </div>
@@ -666,7 +741,17 @@ function WritingView({
 }
 
 function VotingView({
-  submissions, selectedId, setSelectedId, hasVoted, isVoting, onVote,
+  submissions,
+  selectedId,
+  setSelectedId,
+  hasVoted,
+  isVoting,
+  onVote,
+  isHost,
+  onReveal,
+  isRevealing,
+  votedCount,
+  totalCount,
 }: {
   submissions: NonNullable<RoomStateDTO["submissions"]>;
   selectedId: string | null;
@@ -674,54 +759,120 @@ function VotingView({
   hasVoted: boolean;
   isVoting: boolean;
   onVote: () => void;
+  isHost: boolean;
+  onReveal: () => void;
+  isRevealing: boolean;
+  votedCount: number;
+  totalCount: number;
 }) {
+  const ownSubmission = submissions.find((s) => s.isOwnSubmission);
+  const canReveal = isHost && votedCount >= 1;
+
+  // Host controls — always visible to host at the bottom
+  const hostControls = isHost ? (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+      <p className="text-xs text-zinc-500 uppercase tracking-widest mb-3">Host controls</p>
+      <p className="text-xs text-zinc-400 mb-3">
+        {votedCount} / {totalCount} voted
+        {votedCount >= totalCount ? " — everyone has voted!" : ""}
+      </p>
+      <button
+        onClick={onReveal}
+        disabled={!canReveal || isRevealing}
+        className="w-full bg-amber-400 text-zinc-950 font-black text-base py-3.5 rounded-2xl hover:bg-amber-300 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {isRevealing ? "Revealing..." : canReveal ? "Reveal Winner 👑" : "Waiting for votes..."}
+      </button>
+    </div>
+  ) : null;
+
   if (hasVoted) {
     return (
-      <div className="text-center py-16">
-        <div className="text-4xl mb-4">✓</div>
-        <h2 className="font-black text-xl mb-2">Vote cast!</h2>
-        <p className="text-zinc-500 text-sm">Waiting for everyone to vote...</p>
+      <div className="space-y-4">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 text-center">
+          <div className="text-4xl mb-3">✓</div>
+          <p className="font-black text-xl mb-1">Vote cast!</p>
+          <p className="text-zinc-500 text-sm">
+            {votedCount} / {totalCount} voted — waiting for host to reveal...
+          </p>
+        </div>
+        {hostControls}
       </div>
     );
   }
+
   return (
-    <div className="space-y-5">
-      <div className="text-center pt-2">
-        <h2 className="font-black text-2xl">Vote</h2>
-        <p className="text-zinc-500 text-sm mt-1">Who cooked? Tap to select, then vote.</p>
+    <div className="space-y-4 pb-4">
+      {/* Header */}
+      <div className="pt-1">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+          <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
+            Voting Phase
+          </span>
+        </div>
+        <h2 className="font-black text-2xl">Who cooked?</h2>
+        <p className="text-zinc-500 text-sm mt-1">
+          Tap a submission to select, then vote.
+          {ownSubmission && " You can't vote for yourself."}
+        </p>
       </div>
+
+      {/* Submission cards */}
       <div className="space-y-3">
-        {submissions.map((sub) => (
-          <button
-            key={sub.id}
-            onClick={() => setSelectedId(sub.id)}
-            className={cn(
-              "w-full text-left p-4 rounded-xl border transition-all",
-              selectedId === sub.id
-                ? "border-amber-400 bg-amber-400/10"
-                : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"
-            )}
-          >
-            <div className="space-y-1.5">
-              {sub.lines.map((line) => (
-                <p key={line.id} className="text-sm text-zinc-200 leading-relaxed">
-                  {line.text || <span className="text-zinc-600 italic">empty line</span>}
-                </p>
-              ))}
+        {submissions.map((sub, i) => {
+          const isOwn = sub.isOwnSubmission ?? false;
+          const isSelected = selectedId === sub.id;
+          return (
+            <div key={sub.id} className="relative">
+              <button
+                onClick={() => !isOwn && setSelectedId(sub.id)}
+                disabled={isOwn}
+                className={cn(
+                  "w-full text-left p-4 rounded-2xl border-2 transition-all",
+                  isOwn
+                    ? "border-zinc-800 bg-zinc-900/50 opacity-60 cursor-not-allowed"
+                    : isSelected
+                    ? "border-amber-400 bg-amber-400/10 shadow-lg shadow-amber-900/20"
+                    : "border-zinc-800 bg-zinc-900 hover:border-zinc-600 active:scale-[0.99]"
+                )}
+              >
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="text-xs font-black uppercase tracking-widest text-zinc-500">
+                    {isOwn ? "Your submission" : `Submission ${String.fromCharCode(65 + i)}`}
+                  </span>
+                  {isSelected && !isOwn && (
+                    <span className="text-xs text-amber-400 font-black">✓ Selected</span>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  {sub.lines.map((line) => (
+                    <p key={line.id} className="text-sm text-zinc-200 leading-relaxed font-normal">
+                      {line.text}
+                    </p>
+                  ))}
+                </div>
+              </button>
             </div>
-            {selectedId === sub.id && (
-              <div className="mt-3 text-xs text-amber-400 font-semibold">✓ Selected</div>
-            )}
-          </button>
-        ))}
+          );
+        })}
       </div>
+
+      {/* Vote button */}
       <button
         onClick={onVote}
         disabled={!selectedId || isVoting}
-        className="w-full bg-amber-400 text-zinc-950 font-black text-lg py-4 rounded-2xl hover:bg-amber-300 active:scale-95 transition-all disabled:opacity-50"
+        className={cn(
+          "w-full font-black text-lg py-4 rounded-2xl transition-all active:scale-95",
+          "bg-gradient-to-r from-blue-600 to-blue-500 text-white",
+          "shadow-lg shadow-blue-900/40",
+          "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
+        )}
       >
         {isVoting ? "Voting..." : "Cast Vote"}
       </button>
+
+      {hostControls}
     </div>
   );
 }
@@ -734,53 +885,99 @@ function RevealView({
   copied: boolean;
 }) {
   const sorted = [...submissions].sort((a, b) => b.voteCount - a.voteCount);
-  const winner = sorted[0];
+  const maxVotes = sorted[0]?.voteCount ?? 0;
+  const winners = sorted.filter((s) => s.voteCount === maxVotes && maxVotes > 0);
+  const isTie = winners.length > 1;
+  const runner_ups = sorted.filter((s) => !winners.includes(s));
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-6">
+      {/* Header */}
       <div className="text-center pt-2">
-        <div className="text-4xl mb-3">👑</div>
-        <h2 className="font-black text-2xl">{winner?.nickname ?? "???"} cooked</h2>
-        <p className="text-zinc-500 text-sm mt-1">
-          {winner?.voteCount ?? 0} vote{winner?.voteCount !== 1 ? "s" : ""}
-        </p>
+        <div className="text-5xl mb-3">{isTie ? "🤝" : "👑"}</div>
+        {isTie ? (
+          <>
+            <h2 className="font-black text-2xl">It&apos;s a tie!</h2>
+            <p className="text-zinc-400 text-sm mt-1">
+              {winners.map((w) => w.nickname).join(" & ")} — {maxVotes} vote{maxVotes !== 1 ? "s" : ""} each
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 className="font-black text-2xl">{winners[0]?.nickname ?? "???"} cooked</h2>
+            <p className="text-zinc-400 text-sm mt-1">
+              {maxVotes} vote{maxVotes !== 1 ? "s" : ""}
+            </p>
+          </>
+        )}
       </div>
-      {winner && (
-        <div className="bg-amber-400/10 border border-amber-400/30 rounded-xl p-4">
+
+      {/* Winner(s) */}
+      {winners.map((winner) => (
+        <div
+          key={winner.id}
+          className="bg-amber-400/10 border-2 border-amber-400/40 rounded-2xl p-5"
+        >
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-amber-400 text-xs font-bold uppercase tracking-widest">Winner</span>
-            <span className="text-amber-400 font-black">{winner.nickname}</span>
+            <span className="text-amber-400 text-xs font-black uppercase tracking-widest">
+              {isTie ? "Tied" : "Winner"}
+            </span>
+            <span className="text-amber-400 font-black text-sm">{winner.nickname}</span>
+            <span className="ml-auto text-xs text-amber-600 font-semibold">
+              {winner.voteCount} vote{winner.voteCount !== 1 ? "s" : ""}
+            </span>
           </div>
           <div className="space-y-1.5">
             {winner.lines.map((line) => (
-              <p key={line.id} className="text-sm text-zinc-100 leading-relaxed">{line.text}</p>
+              <p key={line.id} className="text-sm text-zinc-100 leading-relaxed">
+                {line.text}
+              </p>
             ))}
           </div>
         </div>
+      ))}
+
+      {/* Runner-ups */}
+      {runner_ups.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold px-1">
+            Other submissions
+          </p>
+          {runner_ups.map((sub, i) => (
+            <div key={sub.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-sm text-zinc-200">
+                  #{winners.length + i + 1} {sub.nickname}
+                </span>
+                <span className="text-xs text-zinc-600">
+                  {sub.voteCount} vote{sub.voteCount !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <div className="space-y-1">
+                {sub.lines.map((line) => (
+                  <p key={line.id} className="text-xs text-zinc-400 leading-relaxed">
+                    {line.text}
+                  </p>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
-      <div className="space-y-3">
-        {sorted.slice(1).map((sub, i) => (
-          <div key={sub.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-sm">#{i + 2} {sub.nickname}</span>
-              <span className="text-xs text-zinc-500">{sub.voteCount} vote{sub.voteCount !== 1 ? "s" : ""}</span>
-            </div>
-            <div className="space-y-1">
-              {sub.lines.map((line) => (
-                <p key={line.id} className="text-xs text-zinc-400 leading-relaxed">{line.text}</p>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
+
+      {/* Actions */}
+      <div className="space-y-3 pt-2">
         <button
           onClick={onShare}
-          className="border border-zinc-800 text-zinc-300 font-semibold py-3 rounded-xl hover:border-zinc-700 transition-all text-sm"
+          className="w-full border border-zinc-700 text-zinc-300 font-semibold py-3.5 rounded-2xl hover:border-zinc-600 transition-all text-sm"
         >
           {copied ? "✓ Copied!" : "Share Results"}
         </button>
-        <a href="/create" className="bg-amber-400 text-zinc-950 font-black py-3 rounded-xl text-center text-sm hover:bg-amber-300 transition-all">
-          New Room
+        <a
+          href="/create"
+          className="block w-full bg-amber-400 text-zinc-950 font-black py-3.5 rounded-2xl text-center text-base hover:bg-amber-300 transition-all active:scale-95"
+        >
+          Create New Room
         </a>
       </div>
     </div>

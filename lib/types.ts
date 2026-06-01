@@ -91,12 +91,13 @@ export interface SubmissionLineDTO {
 
 export interface SubmissionDTO {
   id: string;
-  participantId: string;
-  nickname: string | null; // null when anonymous
+  participantId: string; // empty string when anonymous (VOTING state)
+  nickname: string | null; // null when anonymous (VOTING state)
   rawText: string;
   lines: SubmissionLineDTO[];
-  voteCount: number;
+  voteCount: number; // 0 during VOTING (hidden), real count in REVEAL
   isWinner?: boolean;
+  isOwnSubmission?: boolean; // server-computed: true if this belongs to the current requester
   constraintResults: ConstraintResultDTO[];
 }
 
@@ -138,6 +139,10 @@ export interface RoomStateDTO {
   currentParticipantId: string | null;
   // True if the current participant has already submitted their bars this round
   currentParticipantHasSubmitted: boolean;
+  // True if the current participant has already cast their vote
+  currentParticipantHasVoted: boolean;
+  // How many participants have voted (shown in VOTING state)
+  votedCount: number;
   // Only present in VOTING and REVEAL states
   submissions?: SubmissionDTO[];
 }

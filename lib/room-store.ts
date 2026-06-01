@@ -17,11 +17,21 @@ export interface StoredSubmission {
   submittedAt: string;
 }
 
+export interface StoredVote {
+  voteId: string;
+  participantId: string;
+  submissionId: string;
+  roomCode: string;
+  votedAt: string;
+}
+
 declare global {
   // eslint-disable-next-line no-var
   var __rhyzzleRooms: Map<string, RoomStateDTO> | undefined;
   // eslint-disable-next-line no-var
   var __rhyzzleSubmissions: Map<string, StoredSubmission> | undefined;
+  // eslint-disable-next-line no-var
+  var __rhyzzleVotes: Map<string, StoredVote> | undefined;
 }
 
 // Singleton Maps: survive HMR restarts in Next.js dev mode
@@ -31,6 +41,10 @@ const roomStore: Map<string, RoomStateDTO> =
 // Key: `${ROOMCODE}:${participantId}`
 const submissionStore: Map<string, StoredSubmission> =
   global.__rhyzzleSubmissions ?? (global.__rhyzzleSubmissions = new Map());
+
+// Key: `${ROOMCODE}:${participantId}` — one vote per participant per room
+const voteStore: Map<string, StoredVote> =
+  global.__rhyzzleVotes ?? (global.__rhyzzleVotes = new Map());
 
 export function saveRoom(roomCode: string, room: RoomStateDTO): void {
   roomStore.set(roomCode.toUpperCase(), room);
@@ -80,4 +94,32 @@ export function hasParticipantSubmitted(roomCode: string, participantId: string)
 export function getSubmissionsForRoom(roomCode: string): StoredSubmission[] {
   const upper = roomCode.toUpperCase();
   return Array.from(submissionStore.values()).filter((s) => s.roomCode === upper);
+}
+
+// ── Vote store ────────────────────────────────────────────────────────────────
+
+function voteKey(roomCode: string, participantId: string): string {
+  return `${roomCode.toUpperCase()}:${participantId}`;
+}
+
+export function saveVote(vote: StoredVote): void {
+  voteStore.set(voteKey(vote.roomCode, vote.participantId), vote);
+}
+
+export function hasParticipantVoted(roomCode: string, participantId: string): boolean {
+  return voteStore.has(voteKey(roomCode, participantId));
+}
+
+export function getVotesForRoom(roomCode: string): StoredVote[] {
+  const upper = roomCode.toUpperCase();
+  return Array.from(voteStore.values()).filter((v) => v.roomCode === upper);
+}
+
+// Returns a map of submissionId → vote count for a given room
+export function getVoteCountsForRoom(roomCode: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const v of getVotesForRoom(roomCode)) {
+    counts.set(v.submissionId, (counts.get(v.submissionId) ?? 0) + 1);
+  }
+  return counts;
 }

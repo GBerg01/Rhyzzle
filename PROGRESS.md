@@ -87,6 +87,65 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 7 — 2026-06-01
+
+**Goal:** Complete the full private room game loop: WRITING → VOTING → REVEAL.
+
+**What was done:**
+
+### `lib/room-store.ts`
+- Added `StoredVote` interface (`voteId`, `participantId`, `submissionId`, `roomCode`, `votedAt`)
+- Added `global.__rhyzzleVotes` Map (survives HMR, same pattern as rooms/submissions)
+- Added exports: `saveVote`, `hasParticipantVoted`, `getVotesForRoom`, `getVoteCountsForRoom`
+
+### `lib/types.ts`
+- `SubmissionDTO`: added `isOwnSubmission?: boolean` (server-computed per-requester), comments on anonymization
+- `RoomStateDTO`: added `currentParticipantHasVoted: boolean` and `votedCount: number`
+
+### `app/api/rooms/[roomCode]/route.ts` — GET fully updated
+- Reads `rhyzzle_participant` cookie to compute `currentParticipantHasVoted`
+- Computes `votedCount` from voteStore on every GET (live count, no caching)
+- In VOTING state: builds anonymous `SubmissionDTO[]` — `participantId: ""`, `nickname: null`, `voteCount: 0`, `isOwnSubmission` set per-requester
+- In REVEAL state: builds full `SubmissionDTO[]` — real `participantId`, real `nickname`, real `voteCount`, `isWinner: true` for max-vote holders
+
+### `app/api/rooms/[roomCode]/start-voting/route.ts` — new
+- POST, host-only (403 non-host), idempotent check (WRITING only), needs ≥2 submissions (400 otherwise)
+- Transitions room to VOTING via `updateRoom`
+
+### `app/api/rooms/[roomCode]/vote/route.ts` — rewritten from stub
+- Full implementation: room must be VOTING, participant must be in room, no double-vote (409), no self-vote (400), submission must exist in room (404)
+- Saves vote with `saveVote`
+
+### `app/api/rooms/[roomCode]/reveal/route.ts` — new
+- POST, host-only (403 non-host), room must be VOTING, needs ≥1 vote (400 otherwise)
+- Transitions room to REVEAL via `updateRoom`
+
+### `app/api/rooms/route.ts`
+- Added `currentParticipantHasVoted: false` and `votedCount: 0` to initial room state (satisfies TypeScript)
+
+### `app/room/[roomCode]/page.tsx` — updated throughout
+- Added `isStartingVoting`, `isRevealing` state
+- Added `handleStartVoting()`, `handleReveal()` async functions
+- Added `hasVoted` hydration effect from `roomState.currentParticipantHasVoted`
+- `WritingView` waiting state: host sees "Start Voting →" button when ≥2 submissions; guests see waiting message; both see submission progress bar
+- `VotingView`: full rewrite — anonymous card per submission (labeled A/B/C), own submission card disabled with "Your submission" label, selected card highlighted amber, blue gradient "Cast Vote" button, host sees "Reveal Winner 👑" button in a host controls panel (requires ≥1 vote), voted state shows waiting screen
+- `RevealView`: full rewrite — winner shown in amber card, tied winners all shown, runner-ups listed with vote counts, "Share Results" + "Create New Room" action buttons, tie handling ("It's a tie!")
+
+**TypeScript:** `pnpm tsc --noEmit` — clean, no errors.
+**Build:** `pnpm next build` — clean. 4 new API routes visible in route table.
+
+**Status after this session:**
+Full game loop is complete. Host creates room → players join → host starts writing → players write bars → host starts voting → players vote anonymously → host reveals winner → reveal screen shows winner and all submissions with names. Refresh preserves all state (submitted, voted). Ties are handled. All validations enforced.
+
+**Next 5 tasks:**
+1. Connect PostgreSQL: `.env.local` → `pnpm db:push` → `pnpm db:seed`
+2. Replace in-memory stores with real Prisma operations
+3. Make BeatPlayer functional (real audio playback from beat URLs)
+4. End-to-end integration test (create → 2+ users join → write → vote → reveal)
+5. CLOSED state / "Play Again" flow
+
+---
+
 ## Session 6 — 2026-06-01
 
 **Goal:** Replace the single-textarea lyric canvas with a per-line puzzle board (Genius-inspired) that shows the full rhyme map before the user types anything.

@@ -122,7 +122,9 @@ rhyzzle/
 | `/api/rooms/[roomCode]` | GET | Fetch room state + participants + submissions (phase-appropriate). |
 | `/api/rooms/[roomCode]/join` | POST | Join a room with a nickname. Returns participant session token. |
 | `/api/rooms/[roomCode]/submit` | POST | Submit bars (lines array). |
-| `/api/rooms/[roomCode]/vote` | POST | Cast a vote for a submission. |
+| `/api/rooms/[roomCode]/vote` | POST | Cast a vote for a submission. Prevents self-vote and double-vote. |
+| `/api/rooms/[roomCode]/start-voting` | POST | Host-only. WRITING → VOTING. Requires ≥2 submissions. |
+| `/api/rooms/[roomCode]/reveal` | POST | Host-only. VOTING → REVEAL. Requires ≥1 vote. |
 
 All API routes return JSON. The room page polls `GET /api/rooms/[roomCode]` on an interval to sync state without requiring WebSockets in MVP.
 

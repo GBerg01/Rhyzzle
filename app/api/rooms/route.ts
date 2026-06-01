@@ -100,6 +100,8 @@ export async function POST(req: NextRequest) {
       isHost: false,                       // always false in stored state; GET sets this per-requester
       currentParticipantId: null,          // always null in stored state; GET sets this per-requester
       currentParticipantHasSubmitted: false, // always false in stored state; GET sets this per-requester
+      currentParticipantHasVoted: false,     // always false in stored state; GET sets this per-requester
+      votedCount: 0,                          // always 0 in stored state; GET computes this live
     };
 
     saveRoom(roomCode, roomState);
