@@ -1,40 +1,77 @@
 import Link from "next/link";
+import { DAILY_BEAT, DAILY_TITLE, DAILY_PROMPT, DAILY_REQUIRED_WORDS } from "@/lib/daily-challenge";
 
 export default function LandingPage() {
   return (
     <main className="flex flex-col min-h-screen bg-zinc-950 text-zinc-50">
       {/* Nav */}
       <nav className="flex items-center justify-between px-5 py-4 border-b border-zinc-900">
-        <span className="text-xl font-black tracking-tight text-white">
-          Rhyzzle
-        </span>
+        <span className="text-xl font-black tracking-tight text-white">Rhyzzle</span>
         <Link
-          href="/daily"
+          href="/discover"
           className="text-sm text-zinc-400 hover:text-white transition-colors"
         >
-          Daily
+          Discover
         </Link>
       </nav>
 
       {/* Hero */}
-      <section className="flex-1 flex flex-col items-center justify-center text-center px-6 py-16">
-        <div className="max-w-sm mx-auto">
-          <p className="text-amber-400 text-xs font-semibold tracking-widest uppercase mb-4">
-            The Daily Rap Puzzle
-          </p>
-          <h1 className="text-5xl font-black tracking-tighter leading-none mb-5">
-            Who cooked?
-          </h1>
-          <p className="text-zinc-400 text-lg leading-relaxed mb-10">
-            Create a room, share the link in your group chat, write bars to the
-            same beat, and vote who cooked.
+      <section className="flex-1 flex flex-col items-center justify-center px-5 py-12">
+        <div className="max-w-sm mx-auto w-full">
+
+          {/* Daily label */}
+          <p className="text-amber-400 text-xs font-black uppercase tracking-widest mb-4 text-center">
+            Today&apos;s Rhyzzle
           </p>
 
+          {/* Beat card */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 mb-4 flex items-center gap-4">
+            <div className="w-14 h-14 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-2xl flex-shrink-0">
+              🎵
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-zinc-400 text-[10px] font-black uppercase tracking-widest mb-0.5">
+                Beat
+              </p>
+              <p className="text-white font-black text-base truncate">{DAILY_BEAT.title}</p>
+              <p className="text-zinc-500 text-xs mt-0.5">
+                {DAILY_BEAT.genre} · {DAILY_BEAT.bpm} BPM
+              </p>
+            </div>
+          </div>
+
+          {/* Prompt */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 mb-4">
+            <p className="text-zinc-400 text-[10px] font-black uppercase tracking-widest mb-1.5">
+              Today&apos;s Prompt
+            </p>
+            <p className="text-white font-black text-xl leading-snug mb-1">{DAILY_TITLE}</p>
+            <p className="text-zinc-400 text-sm leading-relaxed">{DAILY_PROMPT}</p>
+          </div>
+
+          {/* Required words */}
+          <div className="mb-8">
+            <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mb-2">
+              Required Words
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {DAILY_REQUIRED_WORDS.map((word) => (
+                <span
+                  key={word}
+                  className="bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-black uppercase tracking-wide px-3 py-1.5 rounded-full"
+                >
+                  {word}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Primary CTA */}
           <Link
-            href="/create"
-            className="block w-full bg-amber-400 text-zinc-950 font-black text-lg py-4 rounded-2xl hover:bg-amber-300 active:scale-95 transition-all"
+            href="/play"
+            className="block w-full bg-amber-400 text-zinc-950 font-black text-lg py-4 rounded-2xl hover:bg-amber-300 active:scale-95 transition-all text-center"
           >
-            Create a Room
+            Play Today →
           </Link>
 
           <div className="mt-4 flex items-center gap-2">
@@ -44,16 +81,16 @@ export default function LandingPage() {
           </div>
 
           <Link
-            href="/daily"
-            className="block w-full mt-4 border border-zinc-800 text-zinc-300 font-semibold text-base py-4 rounded-2xl hover:border-zinc-700 hover:text-white active:scale-95 transition-all"
+            href="/create"
+            className="block w-full mt-4 border border-zinc-800 text-zinc-300 font-semibold text-base py-4 rounded-2xl hover:border-zinc-700 hover:text-white active:scale-95 transition-all text-center"
           >
-            Play Today&apos;s Challenge
+            Start Group Room
           </Link>
         </div>
       </section>
 
       {/* How it works */}
-      <section className="px-6 pb-16">
+      <section className="px-5 pb-16">
         <div className="max-w-sm mx-auto">
           <h2 className="text-xs font-semibold tracking-widest uppercase text-zinc-500 mb-6 text-center">
             How it works
@@ -75,10 +112,8 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="px-6 py-6 border-t border-zinc-900 text-center">
-        <p className="text-xs text-zinc-600">
-          Rhyzzle &mdash; No download. No account required.
-        </p>
+      <footer className="px-5 py-6 border-t border-zinc-900 text-center">
+        <p className="text-xs text-zinc-600">Rhyzzle &mdash; No download. No account required.</p>
       </footer>
     </main>
   );
@@ -86,23 +121,23 @@ export default function LandingPage() {
 
 const HOW_IT_WORKS = [
   {
-    title: "Create a room",
-    desc: "Pick a beat, set your bar count, and choose your challenge rules.",
+    title: "Everyone gets the same challenge",
+    desc: "One beat, one prompt, one set of rules — shared by all players today.",
   },
   {
-    title: "Share the link",
-    desc: "Drop the link in your iMessage, Discord, Snapchat, or wherever your crew lives.",
+    title: "Pick your difficulty",
+    desc: "3 bars for a quick punch. 6 bars for the full challenge. 8 bars if you're ready.",
+  },
+  {
+    title: "Share the room link",
+    desc: "Drop the link in your group chat. Everyone joins instantly — no account needed.",
   },
   {
     title: "Write your bars",
-    desc: "Everyone listens to the same beat and writes 4, 6, or 8 bars. No account needed.",
+    desc: "Listen to the beat, follow the rules, write your verse.",
   },
   {
-    title: "Vote anonymously",
-    desc: "Submissions are hidden until everyone votes. No bias. Just bars.",
-  },
-  {
-    title: "Reveal the winner",
-    desc: "The results drop. Names revealed. Cooked.",
+    title: "Vote anonymously, reveal the winner",
+    desc: "No bias. Just bars. The best verse wins.",
   },
 ];

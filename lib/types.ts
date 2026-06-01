@@ -150,9 +150,13 @@ export interface RoomStateDTO {
 // ─── API Request/Response Types ────────────────────────────────────────────
 
 export interface CreateRoomRequest {
-  beatId: string;
-  challengeId: string;
   hostNickname: string;
+  // Daily challenge path (new primary flow)
+  source?: "DAILY_CHALLENGE";
+  barCount?: 3 | 6 | 8;
+  // Legacy custom room path (beatId + challengeId)
+  beatId?: string;
+  challengeId?: string;
   name?: string;
   privacy?: RoomPrivacy;
   votingMode?: VotingMode;
@@ -210,7 +214,7 @@ export interface SampleChallenge {
   id: string;
   title: string;
   description: string;
-  barCount: 4 | 6 | 8;
+  barCount: 3 | 4 | 6 | 8;
   rules: Array<{
     type: ConstraintType;
     lineIndex?: number;
