@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { CreateRoomRequest, CreateRoomResponse, RoomStateDTO } from "@/lib/types";
-import { generateRoomCode } from "@/lib/utils";
+import { generateRoomCode, generateSessionToken } from "@/lib/utils";
 import { saveRoom, roomExists } from "@/lib/room-store";
 import { SAMPLE_BEATS, SAMPLE_CHALLENGES } from "@/lib/sample-data";
 
-// POST /api/rooms — create a new room
+// POST /api/rooms — create a room and auto-join the creator as host
 export async function POST(req: NextRequest) {
   try {
     const body: CreateRoomRequest = await req.json();
@@ -16,21 +16,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate beat exists
+    if (!body.hostNickname?.trim()) {
+      return NextResponse.json(
+        { error: "hostNickname is required" },
+        { status: 400 }
+      );
+    }
+
     const beat = SAMPLE_BEATS.find((b) => b.id === body.beatId);
     if (!beat) {
-      console.error(`[POST /api/rooms] Unknown beatId: ${body.beatId}`);
       return NextResponse.json({ error: "Beat not found" }, { status: 400 });
     }
 
-    // Validate challenge exists
     const challenge = SAMPLE_CHALLENGES.find((c) => c.id === body.challengeId);
     if (!challenge) {
-      console.error(`[POST /api/rooms] Unknown challengeId: ${body.challengeId}`);
       return NextResponse.json({ error: "Challenge not found" }, { status: 400 });
     }
 
-    // Generate a unique room code
+    // Generate unique room code
     let roomCode = generateRoomCode();
     let attempts = 0;
     while (roomExists(roomCode) && attempts < 10) {
@@ -39,8 +42,18 @@ export async function POST(req: NextRequest) {
     }
 
     const roomId = `room_${roomCode}`;
+    const hostParticipantId = `p_${roomCode}_host`;
+    const hostSessionToken = generateSessionToken();
+    const hostNickname = body.hostNickname.trim().slice(0, 20);
 
-    // Build full room state and persist it
+    const hostParticipant = {
+      id: hostParticipantId,
+      nickname: hostNickname,
+      isHost: true,
+      joinedAt: new Date().toISOString(),
+      hasSubmitted: false,
+    };
+
     const roomState: RoomStateDTO = {
       id: roomId,
       roomCode,
@@ -81,18 +94,31 @@ export async function POST(req: NextRequest) {
           sortOrder: i,
         })),
       },
-      participants: [],
+      participants: [hostParticipant],
       submittedCount: 0,
-      totalCount: 0,
-      isHost: false,
+      totalCount: 1,
+      isHost: false,          // always false in stored state; GET sets this per-requester
+      currentParticipantId: null, // always null in stored state; GET sets this per-requester
     };
 
     saveRoom(roomCode, roomState);
 
-    console.log(`[POST /api/rooms] Created room ${roomCode} (beat: ${beat.title}, challenge: ${challenge.title})`);
+    console.log(`[POST /api/rooms] Created ${roomCode} — host: ${hostNickname}`);
 
-    const response: CreateRoomResponse = { roomCode, roomId };
-    return NextResponse.json(response, { status: 201 });
+    const response: CreateRoomResponse = { roomCode, roomId, hostParticipantId };
+    const nextResponse = NextResponse.json(response, { status: 201 });
+
+    // Set session cookies so the room page recognises the host as already joined
+    const cookieOpts = {
+      httpOnly: true,
+      sameSite: "lax" as const,
+      maxAge: 60 * 60 * 24,
+      path: "/",
+    };
+    nextResponse.cookies.set("rhyzzle_session", hostSessionToken, cookieOpts);
+    nextResponse.cookies.set("rhyzzle_participant", hostParticipantId, cookieOpts);
+
+    return nextResponse;
   } catch (err) {
     console.error("[POST /api/rooms]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

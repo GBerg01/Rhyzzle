@@ -39,7 +39,7 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 | `DONE` | Implement room page LOBBY state (functional) | Shows join form, participant list updates on poll | `app/room/[roomCode]/page.tsx` |
 | `DONE` | Implement client-side polling (4s interval) | Room page refreshes state without full page reload | `app/room/[roomCode]/page.tsx` |
 | `TODO` | Make BeatPlayer functional | Audio plays/pauses from a URL | `components/beat-player.tsx` |
-| `TODO` | Mobile UI polish — LOBBY state | Test at 375px, looks good on iPhone | `app/room/[roomCode]/page.tsx` |
+| `DONE` | Mobile UI polish — LOBBY state | Host lands in lobby directly; invite link visible; guest join form works | `app/room/[roomCode]/page.tsx` |
 
 ---
 

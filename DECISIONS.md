@@ -10,6 +10,18 @@ Format:
 
 ---
 
+## 2026-06-01 — Host is auto-joined into their own room on create
+
+**Decision:** `POST /api/rooms` creates the host as the first `RoomParticipant` (isHost: true) and immediately sets `rhyzzle_session` + `rhyzzle_participant` cookies on the response. The creator is redirected directly into the room lobby — they never see a join form.
+
+**Reason:** The product principle is "fastest possible flow." Making the host manually join their own room after creating it is friction and bad UX. The Jackbox / group-game mental model is: you create, you're in, then you invite friends. The share link lives inside the room lobby.
+
+**Tradeoffs:** The host's session token is generated on create, not on join. This is fine — both paths produce the same result (a cookie that identifies the participant).
+
+**How to apply:** `GET /api/rooms/[roomCode]` always reads the `rhyzzle_participant` cookie and returns `currentParticipantId`. The room page's `useEffect` watches this value and sets `hasJoined=true` when it's non-null, bypassing the join form for anyone who already has a valid session for this room.
+
+---
+
 ## 2026-06-01 — In-memory room store as DB bridge (dev only)
 
 **Decision:** Use a global `Map<string, RoomStateDTO>` in `lib/room-store.ts` as a temporary in-memory store for rooms during development, before PostgreSQL is connected.

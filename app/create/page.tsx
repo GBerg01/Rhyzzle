@@ -10,6 +10,7 @@ const BAR_COUNTS = [4, 6, 8] as const;
 
 export default function CreateRoomPage() {
   const router = useRouter();
+  const [hostNickname, setHostNickname] = useState("");
   const [selectedBeat, setSelectedBeat] = useState(SAMPLE_BEATS[0].id);
   const [barCount, setBarCount] = useState<4 | 6 | 8>(4);
   const [selectedChallenge, setSelectedChallenge] = useState(
@@ -19,7 +20,6 @@ export default function CreateRoomPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Filter challenges to match selected bar count
   const matchingChallenges = SAMPLE_CHALLENGES.filter(
     (c) => c.barCount === barCount
   );
@@ -29,7 +29,10 @@ export default function CreateRoomPage() {
     (c) => c.id === selectedChallenge
   );
 
+  const canCreate = hostNickname.trim().length > 0;
+
   async function handleCreate() {
+    if (!canCreate) return;
     setIsLoading(true);
     setError(null);
 
@@ -38,6 +41,7 @@ export default function CreateRoomPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          hostNickname: hostNickname.trim(),
           beatId: selectedBeat,
           challengeId: selectedChallenge,
           privacy,
@@ -50,6 +54,7 @@ export default function CreateRoomPage() {
       }
 
       const { roomCode } = await res.json();
+      // Cookies are already set by the API response — redirect straight into the room
       router.push(`/room/${roomCode}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -68,6 +73,26 @@ export default function CreateRoomPage() {
       </nav>
 
       <div className="max-w-sm mx-auto px-5 py-8 space-y-8">
+
+        {/* Host Nickname — first and most prominent */}
+        <section>
+          <h2 className="text-xs font-semibold tracking-widest uppercase text-zinc-500 mb-3">
+            Your Name
+          </h2>
+          <input
+            type="text"
+            value={hostNickname}
+            onChange={(e) => setHostNickname(e.target.value)}
+            placeholder="e.g. Grayson"
+            maxLength={20}
+            autoFocus
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-4 text-white placeholder-zinc-600 text-lg font-semibold focus:outline-none focus:border-amber-400 transition-colors"
+          />
+          <p className="text-xs text-zinc-600 mt-2">
+            This is how you&apos;ll appear in the room.
+          </p>
+        </section>
+
         {/* Beat Selection */}
         <section>
           <h2 className="text-xs font-semibold tracking-widest uppercase text-zinc-500 mb-3">
@@ -115,10 +140,7 @@ export default function CreateRoomPage() {
                 key={count}
                 onClick={() => {
                   setBarCount(count);
-                  // Reset challenge when bar count changes
-                  const first = SAMPLE_CHALLENGES.find(
-                    (c) => c.barCount === count
-                  );
+                  const first = SAMPLE_CHALLENGES.find((c) => c.barCount === count);
                   if (first) setSelectedChallenge(first.id);
                 }}
                 className={cn(
@@ -202,6 +224,14 @@ export default function CreateRoomPage() {
               Room Summary
             </h3>
             <div className="space-y-1.5 text-sm">
+              {hostNickname.trim() && (
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Host</span>
+                  <span className="text-amber-400 font-semibold">
+                    {hostNickname.trim()} 👑
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-zinc-500">Beat</span>
                 <span className="text-zinc-100 font-medium">
@@ -226,20 +256,18 @@ export default function CreateRoomPage() {
           </section>
         )}
 
-        {/* Error */}
         {error && (
           <p className="text-sm text-red-400 bg-red-400/10 border border-red-400/20 rounded-xl px-4 py-3">
             {error}
           </p>
         )}
 
-        {/* Create Button */}
         <button
           onClick={handleCreate}
-          disabled={isLoading}
+          disabled={isLoading || !canCreate}
           className="w-full bg-amber-400 text-zinc-950 font-black text-lg py-4 rounded-2xl hover:bg-amber-300 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isLoading ? "Creating..." : "Create Room →"}
+          {isLoading ? "Creating..." : canCreate ? "Create Room →" : "Enter your name to continue"}
         </button>
       </div>
     </main>

@@ -119,3 +119,39 @@ Create → redirect → room page loads the correct room. LOBBY state visible. P
 3. Implement WRITING state — host advances room, bar editor + beat player active
 4. Implement `POST /api/rooms/[roomCode]/submit` — save bars to store/DB
 5. Implement VOTING state — anonymous submissions, vote button
+
+---
+
+## Session 3 — 2026-06-01
+
+**Goal:** Fix create-room UX — host should land directly in the room lobby, not see a join form.
+
+**Root cause diagnosed:**
+- `/create` had no nickname field — host had no identity
+- `POST /api/rooms` never created a host participant and never set session cookies
+- `GET /api/rooms/[roomCode]` never read cookies, so `currentParticipantId` was always null
+- Room page's `hasJoined` state started `false` on every load — every visitor (including the host) saw the join form
+
+**What was done:**
+
+- `lib/types.ts` — added `hostNickname: string` to `CreateRoomRequest`; added `hostParticipantId` to `CreateRoomResponse`; added `currentParticipantId: string | null` to `RoomStateDTO`
+- `app/api/rooms/route.ts` — accepts `hostNickname`; creates host `RoomParticipant` (isHost: true) as the first participant; sets `rhyzzle_session` + `rhyzzle_participant` cookies on the create response
+- `app/api/rooms/[roomCode]/route.ts` — reads `rhyzzle_participant` cookie from request; finds matching participant in room; returns `currentParticipantId` and `isHost` per-requester (not stored in room state)
+- `app/create/page.tsx` — added "Your Name" input field (required, autofocused); sends `hostNickname` in POST body; button disabled until name is entered; summary card shows host name
+- `app/room/[roomCode]/page.tsx` — added `useEffect` that watches `roomState.currentParticipantId` and auto-sets `hasJoined=true` when non-null; split `LobbyJoinView` into `GuestJoinView` (for newcomers) and `LobbyView` (for everyone already in the room); `LobbyView` shows beat/challenge summary + share button + participant list
+
+**Verified at API level:**
+- `POST /api/rooms` → `{ roomCode, roomId, hostParticipantId }` + sets cookies
+- `GET /api/rooms/YVGZA` with host cookie → `currentParticipantId: "p_YVGZA_host"`, `isHost: true`
+- `GET /api/rooms/YVGZA` without cookie → `currentParticipantId: null`, `isHost: false`
+- After guest joins → 2 participants, guest GET returns their own `currentParticipantId`
+
+**Status after this session:**
+Full create → room lobby flow works correctly. Host lands directly in lobby with their name, the share link, and the game summary. Guests see the join form. Refresh doesn't duplicate participants.
+
+**Next 5 tasks:**
+1. Add "Start Game" button for host → advances room from LOBBY → WRITING
+2. Implement `POST /api/rooms/[roomCode]/submit` — save bars to store, track submitted count
+3. Implement WRITING state fully — beat player + challenge card + bar editor functional
+4. Implement VOTING state — anonymous submissions displayed, one vote per participant
+5. Implement REVEAL state — show winner, de-anonymize names

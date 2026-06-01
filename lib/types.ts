@@ -134,6 +134,8 @@ export interface RoomStateDTO {
   submittedCount: number;
   totalCount: number;
   isHost: boolean;
+  // Set server-side by reading rhyzzle_participant cookie — non-null means this browser is already in the room
+  currentParticipantId: string | null;
   // Only present in VOTING and REVEAL states
   submissions?: SubmissionDTO[];
 }
@@ -143,6 +145,7 @@ export interface RoomStateDTO {
 export interface CreateRoomRequest {
   beatId: string;
   challengeId: string;
+  hostNickname: string;
   name?: string;
   privacy?: RoomPrivacy;
   votingMode?: VotingMode;
@@ -152,6 +155,7 @@ export interface CreateRoomRequest {
 export interface CreateRoomResponse {
   roomCode: string;
   roomId: string;
+  hostParticipantId: string;
 }
 
 export interface JoinRoomRequest {
