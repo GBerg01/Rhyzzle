@@ -29,6 +29,7 @@ export default function RoomPage() {
   const [bars, setBars] = useState<string[]>([]);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
 
   // Voting state
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
@@ -74,6 +75,13 @@ export default function RoomPage() {
     }
   }, [roomState?.currentParticipantId, hasJoined]);
 
+  // Hydrate submitted state from server — prevents submitted state resetting on refresh
+  useEffect(() => {
+    if (roomState?.currentParticipantHasSubmitted && !hasSubmitted) {
+      setHasSubmitted(true);
+    }
+  }, [roomState?.currentParticipantHasSubmitted, hasSubmitted]);
+
   async function handleJoin() {
     if (!nickname.trim()) return;
     setIsJoining(true);
@@ -95,6 +103,22 @@ export default function RoomPage() {
       setError(err instanceof Error ? err.message : "Failed to join room");
     } finally {
       setIsJoining(false);
+    }
+  }
+
+  async function handleStart() {
+    setIsStarting(true);
+    try {
+      const res = await fetch(`/api/rooms/${roomCode}/start`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Failed to start game");
+      }
+      await fetchRoom();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start game");
+    } finally {
+      setIsStarting(false);
     }
   }
 
@@ -235,6 +259,8 @@ export default function RoomPage() {
             challenge={challenge}
             onShare={handleShare}
             copied={copied}
+            onStart={handleStart}
+            isStarting={isStarting}
           />
         )}
 
@@ -389,6 +415,8 @@ function LobbyView({
   challenge,
   onShare,
   copied,
+  onStart,
+  isStarting,
 }: {
   roomCode: string;
   participants: RoomStateDTO["participants"];
@@ -398,6 +426,8 @@ function LobbyView({
   challenge: RoomStateDTO["challenge"];
   onShare: () => void;
   copied: boolean;
+  onStart: () => void;
+  isStarting: boolean;
 }) {
   return (
     <div className="space-y-5">
@@ -489,12 +519,13 @@ function LobbyView({
       </div>
 
       {isHost && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-          <p className="text-zinc-400 text-xs">
-            <span className="text-amber-400 font-semibold">Host controls:</span>{" "}
-            Start game button coming next. When ready, you&apos;ll kick off the writing phase for everyone.
-          </p>
-        </div>
+        <button
+          onClick={onStart}
+          disabled={isStarting || participants.length < 1}
+          className="w-full bg-green-400 text-zinc-950 font-black text-lg py-4 rounded-2xl hover:bg-green-300 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isStarting ? "Starting..." : "Start Game →"}
+        </button>
       )}
     </div>
   );

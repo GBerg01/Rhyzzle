@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRoom } from "@/lib/room-store";
+import { getRoom, hasParticipantSubmitted } from "@/lib/room-store";
 
 // GET /api/rooms/[roomCode] — fetch current room state
 // Reads rhyzzle_participant cookie to identify the requester and set isHost/currentParticipantId.
@@ -23,10 +23,15 @@ export async function GET(
       ? room.participants.find((p) => p.id === participantCookie) ?? null
       : null;
 
+    const currentParticipantHasSubmitted = currentParticipant
+      ? hasParticipantSubmitted(upperCode, currentParticipant.id)
+      : false;
+
     const response = {
       ...room,
       currentParticipantId: currentParticipant?.id ?? null,
       isHost: currentParticipant?.isHost ?? false,
+      currentParticipantHasSubmitted,
     };
 
     return NextResponse.json(response);

@@ -47,9 +47,10 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 
 | Status | Task | Acceptance Criteria | Files |
 |---|---|---|---|
-| `TODO` | Implement WRITING state in room page | Beat + challenge + bar editor visible, correct bar count | `app/room/[roomCode]/page.tsx`, `components/bar-editor.tsx` |
-| `TODO` | Implement `POST /api/rooms/[roomCode]/submit` | Submission + lines saved to DB, room shows X/N submitted | `app/api/rooms/[roomCode]/submit/route.ts` |
-| `TODO` | Show submission progress indicator | "2 of 4 submitted" updates in real time via polling | `app/room/[roomCode]/page.tsx` |
+| `DONE` | Implement WRITING state in room page | Beat + challenge + bar editor visible, correct bar count | `app/room/[roomCode]/page.tsx`, `components/bar-editor.tsx` |
+| `DONE` | Implement `POST /api/rooms/[roomCode]/submit` | Submission + lines saved to store, room shows X/N submitted | `app/api/rooms/[roomCode]/submit/route.ts` |
+| `DONE` | Show submission progress indicator | "2 of 4 submitted" updates in real time via polling | `app/room/[roomCode]/page.tsx` |
+| `DONE` | Host can advance room to WRITING state | `POST /api/rooms/[roomCode]/start` — host-only, LOBBY→WRITING | `app/room/[roomCode]/page.tsx`, `app/api/rooms/[roomCode]/start/route.ts` |
 | `TODO` | Host can advance room to VOTING state | Host-only button that transitions WRITING → VOTING | `app/room/[roomCode]/page.tsx`, `app/api/rooms/[roomCode]/route.ts` |
 | `TODO` | Implement VOTING state | Shows anonymous submissions, vote button visible | `app/room/[roomCode]/page.tsx` |
 | `TODO` | Implement `POST /api/rooms/[roomCode]/vote` | Vote recorded, prevents double-voting | `app/api/rooms/[roomCode]/vote/route.ts` |

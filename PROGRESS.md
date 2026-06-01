@@ -87,6 +87,44 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 4 — 2026-06-01
+
+**Goal:** Build LOBBY → WRITING → SUBMIT BARS → WAITING slice.
+
+**What was done:**
+
+- `lib/types.ts` — added `currentParticipantHasSubmitted: boolean` to `RoomStateDTO`
+- `lib/room-store.ts` — added `StoredSubmission` interface and submission store (second global `Map`, keyed by `ROOMCODE:participantId`); added `saveSubmission`, `getSubmission`, `hasParticipantSubmitted`, `getSubmissionsForRoom` exports
+- `app/api/rooms/[roomCode]/start/route.ts` — new route; POST, host-only; 403 for non-host; 404 for unknown room; idempotent if already started; advances LOBBY → WRITING via `updateRoom`
+- `app/api/rooms/[roomCode]/submit/route.ts` — fully implemented; validates room status (must be WRITING), deduplicates (409 on second attempt), saves to submission store, marks `hasSubmitted: true` on participant, increments `submittedCount`
+- `app/api/rooms/[roomCode]/route.ts` — GET now returns `currentParticipantHasSubmitted` by querying submission store
+- `app/api/rooms/route.ts` — added `currentParticipantHasSubmitted: false` to initial room state to satisfy TypeScript
+- `app/room/[roomCode]/page.tsx`:
+  - Added `isStarting` state and `handleStart()` — POSTs to `/start`, then refreshes room
+  - Added `useEffect` that hydrates `hasSubmitted` from `roomState.currentParticipantHasSubmitted` — refresh-safe
+  - Replaced host controls placeholder in `LobbyView` with real green "Start Game →" button
+  - `LobbyView` now accepts `onStart` + `isStarting` props
+
+**Verified at API level:**
+- `POST /api/rooms/CODE/start` → `{ status: "WRITING" }`, room advances
+- `POST /api/rooms/CODE/start` (non-host) → 403
+- `POST /api/rooms/CODE/start` (already WRITING) → idempotent `{ status: "WRITING" }`
+- `POST /api/rooms/CODE/submit` → `{ submissionId }`, `submittedCount` increments
+- `GET /api/rooms/CODE` after submit → `currentParticipantHasSubmitted: true`
+- `POST /api/rooms/CODE/submit` (duplicate) → 409
+
+**Status after this session:**
+Full LOBBY → WRITING → SUBMIT → WAITING flow is functional. Submitted state survives page refresh. Host sees "Start Game →" button; guests see "Waiting for host to start." TypeScript passes clean.
+
+**Next 5 tasks:**
+1. Implement VOTING state — host "End Writing" button (WRITING → VOTING), show anonymous submissions, one vote per participant
+2. Implement `POST /api/rooms/[roomCode]/vote` — store vote, prevent double-voting
+3. Implement REVEAL state — sort by votes, show winner, de-anonymize names
+4. Connect PostgreSQL: `.env.local` → `pnpm db:push` → `pnpm db:seed`
+5. Replace in-memory store with real Prisma operations
+
+---
+
 ## Session 2 — 2026-06-01
 
 **Goal:** Fix "Room not found" bug — make create → room flow work end to end.

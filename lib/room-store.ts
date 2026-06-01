@@ -8,14 +8,29 @@
 
 import type { RoomStateDTO } from "./types";
 
+export interface StoredSubmission {
+  submissionId: string;
+  participantId: string;
+  roomCode: string;
+  lines: string[];
+  rawText: string;
+  submittedAt: string;
+}
+
 declare global {
   // eslint-disable-next-line no-var
   var __rhyzzleRooms: Map<string, RoomStateDTO> | undefined;
+  // eslint-disable-next-line no-var
+  var __rhyzzleSubmissions: Map<string, StoredSubmission> | undefined;
 }
 
-// Singleton Map: survives HMR restarts in Next.js dev mode
+// Singleton Maps: survive HMR restarts in Next.js dev mode
 const roomStore: Map<string, RoomStateDTO> =
   global.__rhyzzleRooms ?? (global.__rhyzzleRooms = new Map());
+
+// Key: `${ROOMCODE}:${participantId}`
+const submissionStore: Map<string, StoredSubmission> =
+  global.__rhyzzleSubmissions ?? (global.__rhyzzleSubmissions = new Map());
 
 export function saveRoom(roomCode: string, room: RoomStateDTO): void {
   roomStore.set(roomCode.toUpperCase(), room);
@@ -42,4 +57,27 @@ export function updateRoom(
 
 export function listRooms(): RoomStateDTO[] {
   return Array.from(roomStore.values());
+}
+
+// ── Submission store ──────────────────────────────────────────────────────────
+
+function submissionKey(roomCode: string, participantId: string): string {
+  return `${roomCode.toUpperCase()}:${participantId}`;
+}
+
+export function saveSubmission(submission: StoredSubmission): void {
+  submissionStore.set(submissionKey(submission.roomCode, submission.participantId), submission);
+}
+
+export function getSubmission(roomCode: string, participantId: string): StoredSubmission | undefined {
+  return submissionStore.get(submissionKey(roomCode, participantId));
+}
+
+export function hasParticipantSubmitted(roomCode: string, participantId: string): boolean {
+  return submissionStore.has(submissionKey(roomCode, participantId));
+}
+
+export function getSubmissionsForRoom(roomCode: string): StoredSubmission[] {
+  const upper = roomCode.toUpperCase();
+  return Array.from(submissionStore.values()).filter((s) => s.roomCode === upper);
 }

@@ -1,68 +1,81 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  getRoom,
+  updateRoom,
+  saveSubmission,
+  hasParticipantSubmitted,
+} from "@/lib/room-store";
 import type { SubmitBarsRequest, SubmitBarsResponse } from "@/lib/types";
 
 // POST /api/rooms/[roomCode]/submit
-// Saves a participant's bars to the database.
+// Saves a participant's bars. One submission per participant. Room must be in WRITING state.
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
 ) {
   try {
     const { roomCode } = await params;
+    const upperCode = roomCode.toUpperCase();
     const body: SubmitBarsRequest = await req.json();
 
     if (!Array.isArray(body.lines) || body.lines.length === 0) {
-      return NextResponse.json(
-        { error: "lines array is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "lines array is required" }, { status: 400 });
     }
 
-    // Read session cookie to identify the participant
-    const sessionId = req.cookies.get("rhyzzle_session")?.value;
-    if (!sessionId) {
+    const participantCookie = req.cookies.get("rhyzzle_participant")?.value ?? null;
+    if (!participantCookie) {
       return NextResponse.json(
         { error: "Not authenticated — join the room first" },
         { status: 401 }
       );
     }
 
-    // TODO (Phase 2): Implement with Prisma:
-    // 1. Find room by roomCode, verify status === "WRITING"
-    // 2. Find GuestUser by sessionId, find their RoomParticipant for this room
-    // 3. Verify participant hasn't already submitted
-    // 4. Create Submission + SubmissionLines
-    // 5. Check if all participants have submitted → auto-advance to VOTING if so
-    // 6. Return submissionId
-    //
-    // Example:
-    //   const room = await prisma.room.findUnique({ where: { roomCode } });
-    //   if (room?.status !== "WRITING") return 400;
-    //   const guest = await prisma.guestUser.findUnique({ where: { sessionId } });
-    //   const participant = await prisma.roomParticipant.findUnique({
-    //     where: { roomId_guestUserId: { roomId: room.id, guestUserId: guest.id } }
-    //   });
-    //   const rawText = body.lines.join("\n");
-    //   const submission = await prisma.submission.create({
-    //     data: {
-    //       roomId: room.id, participantId: participant.id,
-    //       guestUserId: guest.id, rawText,
-    //       lines: { create: body.lines.map((text, i) => ({ lineIndex: i, text })) }
-    //     }
-    //   });
-    //   return NextResponse.json({ submissionId: submission.id });
+    const room = getRoom(upperCode);
+    if (!room) {
+      return NextResponse.json({ error: "Room not found" }, { status: 404 });
+    }
 
-    // Placeholder response
-    const response: SubmitBarsResponse = {
-      submissionId: `submission-placeholder-${roomCode}`,
-    };
+    if (room.status !== "WRITING") {
+      return NextResponse.json(
+        { error: "Room is not in the writing phase" },
+        { status: 400 }
+      );
+    }
 
+    const participant = room.participants.find((p) => p.id === participantCookie);
+    if (!participant) {
+      return NextResponse.json({ error: "You are not in this room" }, { status: 403 });
+    }
+
+    if (hasParticipantSubmitted(upperCode, participantCookie)) {
+      return NextResponse.json({ error: "You have already submitted" }, { status: 409 });
+    }
+
+    const submissionId = `sub_${upperCode}_${Date.now()}`;
+    const rawText = body.lines.join("\n");
+
+    saveSubmission({
+      submissionId,
+      participantId: participantCookie,
+      roomCode: upperCode,
+      lines: body.lines,
+      rawText,
+      submittedAt: new Date().toISOString(),
+    });
+
+    // Update the participant's hasSubmitted flag and increment submittedCount
+    const updatedParticipants = room.participants.map((p) =>
+      p.id === participantCookie ? { ...p, hasSubmitted: true } : p
+    );
+    updateRoom(upperCode, {
+      participants: updatedParticipants,
+      submittedCount: room.submittedCount + 1,
+    });
+
+    const response: SubmitBarsResponse = { submissionId };
     return NextResponse.json(response, { status: 201 });
   } catch (err) {
     console.error("[POST /api/rooms/[roomCode]/submit]", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

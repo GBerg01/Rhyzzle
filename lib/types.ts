@@ -136,6 +136,8 @@ export interface RoomStateDTO {
   isHost: boolean;
   // Set server-side by reading rhyzzle_participant cookie — non-null means this browser is already in the room
   currentParticipantId: string | null;
+  // True if the current participant has already submitted their bars this round
+  currentParticipantHasSubmitted: boolean;
   // Only present in VOTING and REVEAL states
   submissions?: SubmissionDTO[];
 }
