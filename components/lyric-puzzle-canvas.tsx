@@ -5,8 +5,33 @@ import { cn } from "@/lib/utils";
 import type { ChallengeDTO } from "@/lib/types";
 import type { RuleHelpKey } from "@/lib/rule-help";
 import { RuleHelpSheet } from "@/components/rule-help-sheet";
-import { buildMeta, C, letterColor } from "@/lib/lyric-meta";
+import { buildMeta, C, letterColor, type LineColor } from "@/lib/lyric-meta";
 import { runLiveChecks, type LiveCheckState } from "@/lib/rule-checks/live-checks";
+
+// ─── Focus indicator — 3px colored left strip when a row is active ────────────
+
+const FOCUS_STRIP: Record<LineColor, string> = {
+  yellow: "bg-yellow-400",
+  cyan:   "bg-cyan-400",
+  green:  "bg-green-400",
+  purple: "bg-purple-500",
+  pink:   "bg-pink-400",
+  amber:  "bg-amber-400",
+  orange: "bg-orange-400",
+  zinc:   "bg-zinc-400",
+};
+
+// Canvas card border tracks the focused line's color
+const CANVAS_BORDER_FOCUSED: Record<LineColor, string> = {
+  yellow: "border-yellow-300/60",
+  cyan:   "border-cyan-300/60",
+  green:  "border-green-300/60",
+  purple: "border-purple-300/60",
+  pink:   "border-pink-300/60",
+  amber:  "border-amber-300/60",
+  orange: "border-orange-300/60",
+  zinc:   "border-zinc-300/60",
+};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -25,6 +50,7 @@ export function LyricPuzzleCanvas({
 }: LyricPuzzleCanvasProps) {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [activeHelpKey, setActiveHelpKey] = useState<RuleHelpKey | null>(null);
+  const [focusedLine, setFocusedLine] = useState<number | null>(null);
 
   // Live check state — debounced 300ms so it doesn't fire on every keystroke
   const [liveState, setLiveState] = useState<LiveCheckState>(() =>
@@ -43,6 +69,8 @@ export function LyricPuzzleCanvas({
   const scheme = meta.map((m) => m.schemeLetter);
   const filledCount = lines.filter((l) => l.trim().length > 0).length;
   const allFilled = filledCount === challenge.barCount && lines.every((l) => l.trim().length > 0);
+
+  const focusedColor = focusedLine !== null ? meta[focusedLine]?.chip.color : null;
 
   function handleKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && i < challenge.barCount - 1) {
@@ -109,18 +137,22 @@ export function LyricPuzzleCanvas({
         </div>
       )}
 
-      {/* Canvas */}
+      {/* Canvas card — border follows focused line color */}
       <div
         className={cn(
-          "bg-white rounded-2xl overflow-hidden shadow-2xl border-2 transition-colors duration-300",
-          disabled ? "opacity-60 border-transparent"
-            : allFilled ? "border-green-400/40"
+          "bg-white rounded-2xl overflow-hidden shadow-2xl border-2 transition-colors duration-200",
+          disabled
+            ? "opacity-60 border-transparent"
+            : allFilled
+            ? "border-green-400/40"
+            : focusedColor
+            ? CANVAS_BORDER_FOCUSED[focusedColor]
             : "border-transparent",
         )}
       >
         {meta.map((m, i) => {
           const value = lines[i] ?? "";
-          const isEmpty = value.trim().length === 0;
+          const isFocused = focusedLine === i;
           const col = C[m.chip.color];
           const hint = liveState.lineHints[i];
 
@@ -128,26 +160,39 @@ export function LyricPuzzleCanvas({
             <div
               key={i}
               className={cn(
-                "flex items-stretch border-b border-zinc-100/80 last:border-b-0 transition-colors duration-150",
-                isEmpty ? col.row : "bg-white",
+                "flex items-stretch border-b border-zinc-100/80 last:border-b-0 transition-colors duration-150 relative",
+                // Always keep the row colored — remove the old isEmpty → white fallback
+                isFocused ? col.rowFocused : col.row,
               )}
             >
-              {/* Gutter: line number + scheme badge */}
+              {/* Colored focus strip — 3px left indicator when this row is active */}
+              {isFocused && (
+                <div
+                  className={cn(
+                    "absolute left-0 top-0 bottom-0 w-[3px] z-10",
+                    FOCUS_STRIP[m.chip.color],
+                  )}
+                  aria-hidden
+                />
+              )}
+
+              {/* Gutter: line number + scheme badge — always colored */}
               <div
                 className={cn(
-                  "flex flex-col items-center justify-center gap-1 py-3 border-r border-zinc-100 flex-shrink-0 select-none transition-colors duration-150",
-                  isEmpty ? col.gutter : "bg-zinc-50/50",
+                  "flex flex-col items-center justify-center gap-1 py-3 border-r border-zinc-100/60 flex-shrink-0 select-none transition-colors duration-150",
+                  isFocused ? col.gutterFocused : col.gutter,
                 )}
                 style={{ width: "44px" }}
                 aria-hidden
               >
-                <span className="text-xs font-black text-zinc-400 leading-none tabular-nums">
+                <span className="text-xs font-black text-zinc-500 leading-none tabular-nums">
                   {i + 1}
                 </span>
+                {/* Scheme badge — always colored regardless of content */}
                 <span
                   className={cn(
-                    "text-[10px] font-black rounded px-1 py-0.5 leading-none transition-colors duration-150",
-                    isEmpty ? `${col.chip} ${col.text}` : "bg-zinc-200 text-zinc-500",
+                    "text-[10px] font-black rounded px-1 py-0.5 leading-none",
+                    col.chip, col.text,
                   )}
                 >
                   {m.schemeLetter}
@@ -177,7 +222,7 @@ export function LyricPuzzleCanvas({
                     </span>
                   )}
 
-                  {/* Live status indicator — only shown when line has content */}
+                  {/* Live status indicator — only when line has content */}
                   {hint && hint.status !== "empty" && (
                     <>
                       {hint.ruleHint && (
@@ -201,18 +246,22 @@ export function LyricPuzzleCanvas({
                   )}
                 </div>
 
-                {/* Text input */}
+                {/* Text input — color-tinted text tied to row identity */}
                 <input
                   ref={(el) => { inputRefs.current[i] = el; }}
                   type="text"
                   value={value}
                   onChange={(e) => onLineChange(i, e.target.value)}
                   onKeyDown={(e) => handleKeyDown(i, e)}
+                  onFocus={() => setFocusedLine(i)}
+                  onBlur={() => setFocusedLine(null)}
                   disabled={disabled}
-                  placeholder={isEmpty ? m.chip.placeholder : ""}
+                  placeholder={value.trim() === "" ? m.chip.placeholder : ""}
                   className={cn(
-                    "w-full bg-transparent text-zinc-900 text-sm font-normal",
+                    "w-full bg-transparent text-sm font-normal",
                     "placeholder-zinc-400 outline-none leading-snug",
+                    // Color-tinted dark text so each bar feels tied to its scheme slot
+                    col.textDark,
                     disabled && "cursor-not-allowed",
                   )}
                   autoCapitalize="sentences"
@@ -225,7 +274,7 @@ export function LyricPuzzleCanvas({
                   <span
                     className={cn(
                       "text-[10px] font-medium leading-none",
-                      hint.status === "looks_good" || hint.rhymeHint.endsWith("✓")
+                      hint.rhymeHint.endsWith("✓")
                         ? "text-green-600"
                         : "text-amber-500",
                     )}

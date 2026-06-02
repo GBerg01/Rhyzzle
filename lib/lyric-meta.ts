@@ -8,15 +8,23 @@ import type { RuleHelpKey } from "@/lib/rule-help";
 
 export type LineColor = "yellow" | "cyan" | "green" | "purple" | "pink" | "amber" | "orange" | "zinc";
 
-export const C: Record<LineColor, { chip: string; text: string; row: string; gutter: string }> = {
-  yellow: { chip: "bg-yellow-400", text: "text-zinc-900", row: "bg-yellow-50",  gutter: "bg-yellow-50/70"  },
-  cyan:   { chip: "bg-cyan-400",   text: "text-zinc-900", row: "bg-cyan-50",    gutter: "bg-cyan-50/70"    },
-  green:  { chip: "bg-green-400",  text: "text-zinc-900", row: "bg-green-50",   gutter: "bg-green-50/70"   },
-  purple: { chip: "bg-purple-500", text: "text-white",    row: "bg-purple-50",  gutter: "bg-purple-50/70"  },
-  pink:   { chip: "bg-pink-400",   text: "text-zinc-900", row: "bg-pink-50",    gutter: "bg-pink-50/70"    },
-  amber:  { chip: "bg-amber-400",  text: "text-zinc-900", row: "bg-amber-50",   gutter: "bg-amber-50/70"   },
-  orange: { chip: "bg-orange-400", text: "text-zinc-900", row: "bg-orange-50",  gutter: "bg-orange-50/70"  },
-  zinc:   { chip: "bg-zinc-400",   text: "text-white",    row: "bg-zinc-50",    gutter: "bg-zinc-50/70"    },
+export const C: Record<LineColor, {
+  chip: string; text: string; row: string; gutter: string;
+  /** Darker row tint when a line is focused — one shade above `row`. */
+  rowFocused: string;
+  /** Darker gutter tint when a line is focused. */
+  gutterFocused: string;
+  /** Very dark color-tinted text for typed input — readable on light bg. */
+  textDark: string;
+}> = {
+  yellow: { chip: "bg-yellow-400", text: "text-zinc-900", row: "bg-yellow-50",  gutter: "bg-yellow-50/70",  rowFocused: "bg-yellow-100",  gutterFocused: "bg-yellow-100",  textDark: "text-amber-950"  },
+  cyan:   { chip: "bg-cyan-400",   text: "text-zinc-900", row: "bg-cyan-50",    gutter: "bg-cyan-50/70",    rowFocused: "bg-cyan-100",    gutterFocused: "bg-cyan-100",    textDark: "text-cyan-950"   },
+  green:  { chip: "bg-green-400",  text: "text-zinc-900", row: "bg-green-50",   gutter: "bg-green-50/70",   rowFocused: "bg-green-100",   gutterFocused: "bg-green-100",   textDark: "text-green-950"  },
+  purple: { chip: "bg-purple-500", text: "text-white",    row: "bg-purple-50",  gutter: "bg-purple-50/70",  rowFocused: "bg-purple-100",  gutterFocused: "bg-purple-100",  textDark: "text-purple-950" },
+  pink:   { chip: "bg-pink-400",   text: "text-zinc-900", row: "bg-pink-50",    gutter: "bg-pink-50/70",    rowFocused: "bg-pink-100",    gutterFocused: "bg-pink-100",    textDark: "text-pink-950"   },
+  amber:  { chip: "bg-amber-400",  text: "text-zinc-900", row: "bg-amber-50",   gutter: "bg-amber-50/70",   rowFocused: "bg-amber-100",   gutterFocused: "bg-amber-100",   textDark: "text-amber-950"  },
+  orange: { chip: "bg-orange-400", text: "text-zinc-900", row: "bg-orange-50",  gutter: "bg-orange-50/70",  rowFocused: "bg-orange-100",  gutterFocused: "bg-orange-100",  textDark: "text-orange-950" },
+  zinc:   { chip: "bg-zinc-400",   text: "text-white",    row: "bg-zinc-50",    gutter: "bg-zinc-50/70",    rowFocused: "bg-zinc-100",    gutterFocused: "bg-zinc-100",    textDark: "text-zinc-700"   },
 };
 
 export const LETTER_COLOR: Record<string, LineColor> = {

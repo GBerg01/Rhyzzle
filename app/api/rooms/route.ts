@@ -133,14 +133,18 @@ export async function POST(req: NextRequest) {
         data: {
           roomCode,
           name: body.name ?? null,
+          // Explicitly null so Prisma uses RoomUncheckedCreateInput (raw FK path).
+          // Snapshot-based rooms store beat/challenge data in JSON — no FK required.
+          beatId: null,
+          challengeId: null,
+          beatSnapshot: beat as unknown as Prisma.InputJsonValue,
+          challengeSnapshot: challenge as unknown as Prisma.InputJsonValue,
           status: initialStatus,
           roomMode,
           privacy: body.privacy ?? "PRIVATE",
           votingMode: "ANONYMOUS",
           locksAt,
           deadline: body.deadline ? new Date(body.deadline) : null,
-          beatSnapshot: beat as unknown as Prisma.InputJsonValue,
-          challengeSnapshot: challenge as unknown as Prisma.InputJsonValue,
           guestHostId: guest.id,
         },
       });
