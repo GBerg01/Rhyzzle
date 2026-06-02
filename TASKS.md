@@ -126,6 +126,9 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 | `DONE` | Highlight spans returned by GET API | Spans included in SubmissionDTO for VOTING/REVEAL/CHALLENGE_LINK | `app/api/rooms/[roomCode]/route.ts` |
 | `DONE` | Live editor indicators while typing | Required word chips update live; per-line status badges + rhyme hints; debounced 300ms; guidance note shown | `lib/rule-checks/live-checks.ts`, `components/lyric-puzzle-canvas.tsx` |
 | `DONE` | Canvas color identity while typing | Rows always colorful; focused row gets left strip + darker tint; typed text color-tinted; canvas border tracks focused line | `lib/lyric-meta.ts`, `components/lyric-puzzle-canvas.tsx` |
+| `DONE` | Inline highlight precision | End rhymes, alliteration, required words, metaphor phrase all highlight exact spans — not whole lines | `lib/rule-checks/deterministic.ts`, `lib/rule-checks/ai-placeholder.ts` |
+| `DONE` | Slant rhyme detection | wordsLikelyRhyme() with 4-level heuristic: exact key, dedup, phoneme group (OH/EE/EYE etc.), last-2-chars | `lib/rule-checks/deterministic.ts` |
+| `DONE` | Post-submit preview card | runRuleChecks client-side on submit; SubmissionPatternCard with inline highlights shown immediately | `app/play/[barCount]/page.tsx` |
 | `TODO` | Real AI checks (Phase 5B) | Replace heuristic placeholders with actual AI model calls | `lib/rule-checks/ai-placeholder.ts` |
 
 ---

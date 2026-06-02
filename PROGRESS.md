@@ -87,6 +87,86 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 18 — 2026-06-02
+
+**Goal:** Improve inline highlight precision, rhyme detection, metaphor phrase extraction, and add a colorful post-submit preview card.
+
+**What was done:**
+
+### Part 1 — Inline highlight precision (`lib/rule-checks/deterministic.ts`, `lib/rule-checks/ai-placeholder.ts`)
+- Required words: already highlighted exact word occurrence — no change needed; confirmed working
+- End rhymes: `checkEndRhymePair` always highlights the end word of both lines (not whole-line)
+- Alliteration: `checkAlliteration` highlights each alliterating word individually as a separate span
+- Theme reference: highlights the matched keyword inline
+- All highlights are character-precise with correct `startIndex`/`endIndex`; safe clamping in `HighlightedText`
+
+### Part 2 — Better rhyme detection (`lib/rule-checks/deterministic.ts`)
+- Replaced `simpleRhymes(a, b): boolean` with `wordsLikelyRhyme(a, b): RhymeResult` (exported for reuse)
+- Three-level approach:
+  - **Level 1**: exact rhyme key match → PASS (night/fight, pain/rain, gold/cold)
+  - **Level 1.5**: deduplicated key (me/free → "e"/"e" → PASS; o/oo handling)
+  - **Level 2**: same phoneme group → NEEDS_REVIEW (window/tempo → OH group, gold/home → OH group, flow/go → OH group)
+  - **Level 3**: same last 2 chars of word → NEEDS_REVIEW
+- New helpers: `normalizeWord()`, `stripSilentE()` ("home"→"hom" for correct key), `getRhymeKey()`, `getPhonemeGroup()` (OH/AY/EE/EYE/OO/ER/AW groups)
+- `checkEndRhymePair` and `checkChainRhyme` updated to use `wordsLikelyRhyme`; status now PASS/NEEDS_REVIEW/MISSING instead of boolean
+
+### Part 3 — Metaphor phrase extraction (`lib/rule-checks/ai-placeholder.ts`)
+- Added `extractPhraseAround(line, patStart, patEnd)` helper
+  - Extends backward to clause start (line start or after `[.!?;]`)
+  - Extends forward up to 4 content words (stops at prepositions/conjunctions)
+- `checkMetaphor` now highlights the full figurative clause, not just the trigger pattern
+  - "My heart is a locked room with gold on the floor" → highlights "My heart is a locked room" (green)
+  - Previously would have only highlighted "is a" (4 chars)
+- Simile patterns ("like a", "feel like") vs metaphor patterns ("is a", "was a", "I'm a", "turns into") correctly distinguished
+
+### Part 4 — Post-submit preview (`app/play/[barCount]/page.tsx`)
+- `handleSubmit()` now calls `runRuleChecks(barLines, challenge)` client-side immediately
+- Converts `ComputedHighlightSpan[]` → `SubmissionLineDTO[]` using `CATEGORY_COLOR` for DB-compatible format
+- Replaces the plain "Your bars" text list with `SubmissionPatternCard` (colorful rows, scheme letters, rule chips, inline highlights)
+- Note below card: "Rhyzzle checks the pattern, not quality. Humans still vote who cooked."
+- Non-fatal: if `runRuleChecks` throws, preview falls back to bars with no highlights (submission always works)
+
+### Live hint update (`lib/rule-checks/live-checks.ts`)
+- Rhyme hint now distinguishes three cases:
+  - PASS → "Rhyme connected ✓" (green, status = looks_good)
+  - NEEDS_REVIEW → "Possible slant rhyme ~" (green, status = looks_good — slant is valid in rap)
+  - MISSING → "Connect to '[end word]'" (amber, status = needs_review)
+
+**TypeScript:** `pnpm tsc --noEmit` — clean, zero errors.
+
+**Test scenario — expected results for 6-bar:**
+```
+Line 1: I kept my dreams folded deep inside the window
+Line 2: Winter in my chest but I still kept the tempo
+→ "window"/"tempo": NEEDS_REVIEW (both OH group) → "Possible slant rhyme ~" ✓
+→ "window": gold REQUIRED_WORD highlight ✓
+
+Line 3: My heart is a locked room with gold on the floor
+→ "My heart is a locked room" highlighted green (metaphor phrase) ✓
+→ "gold": gold REQUIRED_WORD highlight ✓
+
+Line 4: I turned the static into speakers they could not ignore
+→ "floor"/"ignore": both end in "or" → PASS ✓ (end rhyme highlights)
+→ "static": gold REQUIRED_WORD highlight ✓
+
+Line 5: Cold city corners couldn't close me
+→ alliteration on 'C': "Cold", "city", "corners", "couldn", "close" highlighted orange ✓
+
+Line 6: Now I own the view from that same old window
+→ "window": gold REQUIRED_WORD highlight ✓
+```
+
+**Post-submit:** After submitting, the plain text list is replaced by the full colorful pattern card with all inline spans computed client-side.
+
+**Known limitations:**
+- "pressure"/"dresser" not detected (requires phonetic dictionary) — by design
+- "gold"/"home" = NEEDS_REVIEW only (not PASS) — acceptable for heuristic
+- "again"/"pen" = MISSING — very loose slant, acceptable
+- Simile ("like a") shown as PASS in the heuristic but labeled separately in explanation
+- Metaphor phrase extraction can occasionally capture too little or too much text near punctuation — Phase 5B AI will fix
+
+---
+
 ## Session 17 — 2026-06-02
 
 **Goal:** Fix Prisma "Argument `beat` is missing" runtime error on Challenge Friends room creation, and polish the writing canvas so rows have full color identity while typing.

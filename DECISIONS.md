@@ -278,6 +278,26 @@ Format:
 
 ---
 
+## 2026-06-02 — Rhyme detection: multi-level heuristic with phoneme groups (no phonetic dictionary)
+
+**Decision:** Implement `wordsLikelyRhyme(a, b)` as a 4-level local heuristic (exact key → deduplicated key → phoneme group → last 2 chars) returning PASS / NEEDS_REVIEW / MISSING. Do NOT add a phonetic dictionary dependency (e.g., CMU Pronouncing Dictionary).
+
+**Reason:**
+- The app must work with zero API keys and no large data files
+- A phonetic dictionary (CMU Pronouncing Dictionary is ~1.2 MB) adds bundle weight and complexity for modest gains
+- Slant rhyme detection via phoneme groups catches the most common rap rhyme patterns (window/tempo → both "OH" sound, gold/home → both "OH" sound, night/fight → exact match)
+- Uncertain cases return NEEDS_REVIEW, not false PASS or false MISSING — honest about heuristic limits
+- Real AI calls in Phase 5B will replace these heuristics
+
+**Tradeoffs:**
+- Spelling-based: "weight"/"late" (both /eɪt/) not detected as PASS because "weight" → key "ight" vs "ate" key mismatch; phonetics would catch it
+- "pressure"/"dresser" not detected as slant rhyme — polysyllabic vowel rhymes with irregular spelling require phonetics
+- "me"/"free" correctly PASS via exact key "e"/"e" match (single-char keys allowed at Level 1)
+
+**How to apply:** When adding new rhyme-adjacent checks, use `wordsLikelyRhyme(a, b)` from `lib/rule-checks/deterministic.ts`. Never return MISSING for a subjective rule that could have valid rap interpretations.
+
+---
+
 ## 2026-06-02 — Prisma XOR validation fix: explicit beatId: null required for snapshot rooms
 
 **Decision:** When creating rooms that use `beatSnapshot`/`challengeSnapshot` (not FK relations), explicitly pass `beatId: null` and `challengeId: null` to `tx.room.create`.
