@@ -47,13 +47,25 @@ rhyzzle/
 │               └── vote/
 │                   └── route.ts    # POST — cast vote
 ├── components/
-│   ├── beat-player.tsx         # Audio player for the beat
-│   ├── bar-editor.tsx          # Line-by-line writing editor
-│   └── challenge-card.tsx      # Displays challenge rules
+│   ├── beat-player.tsx             # Audio player for the beat
+│   ├── bar-editor.tsx              # Line-by-line writing editor
+│   ├── challenge-card.tsx          # Displays challenge rules
+│   ├── highlighted-text.tsx        # Inline span renderer (END_RHYME, REQUIRED_WORD, etc.)
+│   ├── lyric-puzzle-canvas.tsx     # Full per-line puzzle board for WRITING state
+│   ├── rule-help-sheet.tsx         # Bottom sheet with rule definitions
+│   └── submission-pattern-card.tsx # Read-only card showing a submission with highlights
 ├── lib/
 │   ├── types.ts                # Shared TypeScript types (DTOs, enums)
-│   ├── utils.ts                # Helpers: room code gen, score calc, cn()
-│   └── sample-data.ts          # Static seed data for dev/test
+│   ├── utils.ts                # Helpers: room code gen, score calc, cn(), HIGHLIGHT_COLORS
+│   ├── sample-data.ts          # Static seed data for dev/test
+│   ├── daily-challenge.ts      # Today's challenge beat + variants (3/6/8 bars)
+│   ├── lyric-meta.ts           # buildMeta(), deriveScheme() — shared between canvas + rule checks
+│   ├── rule-help.ts            # Static rule education content (definitions, examples, tips)
+│   └── rule-checks/
+│       ├── types.ts            # RuleCheckStatus, RuleCheckResult, ComputedHighlightSpan
+│       ├── deterministic.ts    # Local checks: line count, required words, rhyme, alliteration
+│       ├── ai-placeholder.ts   # Heuristic stubs: metaphor, punchline, callback, assonance
+│       └── run-rule-checks.ts  # Orchestrator: routes ConstraintType → appropriate checker
 ├── prisma/
 │   ├── schema.prisma           # Full database schema
 │   └── seed.ts                 # Seed script
@@ -93,11 +105,11 @@ rhyzzle/
 
 **Like, Comment, Save, ShareEvent** — Engagement actions on public submissions. Feed into the discovery scoring formula.
 
-### Future / Phase 5 Entities
+### Phase 5 Entities (active as of Session 15)
 
-**HighlightSpan** — A highlighted range within a `SubmissionLine`. Has `startIndex`, `endIndex`, `category` (END_RHYME, INTERNAL_RHYME, etc.), `color`, `confidence`, and AI explanation. Populated by the constraint engine.
+**HighlightSpan** — A highlighted range within a `SubmissionLine`. Has `startIndex`, `endIndex`, `category` (END_RHYME, INTERNAL_RHYME, etc.), `color`, `confidence`, and explanation. Populated by `lib/rule-checks/` on every submit, returned in `SubmissionDTO.lines[].highlightSpans`, rendered by `HighlightedText` in `SubmissionPatternCard`.
 
-**ConstraintResult** — Result of running a constraint check on a submission. Has `ruleType`, `lineIndex`, `passed`, `confidence`, and explanation. Enables the red-underline failure highlighting.
+**ConstraintResult** — Result of running a constraint check on a submission. Has `ruleType`, `lineIndex`, `passed`, `confidence`, and explanation. Populated non-fatally after submit. Future: drive red-underline failure indicators in the editor.
 
 ---
 

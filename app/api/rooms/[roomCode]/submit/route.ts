@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { SubmitBarsRequest, SubmitBarsResponse } from "@/lib/types";
+import type { SubmitBarsRequest, SubmitBarsResponse, ChallengeDTO } from "@/lib/types";
 import { prisma } from "@/lib/prisma";
+import { runRuleChecks } from "@/lib/rule-checks/run-rule-checks";
+import { CATEGORY_COLOR } from "@/lib/rule-checks/types";
 
 // POST /api/rooms/[roomCode]/submit
 // Saves a participant's bars. One submission per participant (enforced by DB unique constraint).
+// Runs rule checks after saving and persists ConstraintResult + HighlightSpan rows.
 // CHALLENGE_LINK: allowed anytime before locksAt.
 // GROUP_ROOM: allowed only in WRITING state.
 export async function POST(
@@ -29,7 +32,13 @@ export async function POST(
 
     const room = await prisma.room.findUnique({
       where: { roomCode: upperCode },
-      select: { id: true, status: true, roomMode: true, locksAt: true },
+      select: {
+        id: true,
+        status: true,
+        roomMode: true,
+        locksAt: true,
+        challengeSnapshot: true,
+      },
     });
 
     if (!room) {
@@ -73,7 +82,8 @@ export async function POST(
 
     const rawText = body.lines.join("\n");
 
-    const submission = await prisma.submission.create({
+    // Create submission and capture line IDs for highlight span linking
+    const submissionRecord = await prisma.submission.create({
       data: {
         roomId: room.id,
         participantId: participantCookie,
@@ -82,10 +92,58 @@ export async function POST(
           create: body.lines.map((text, idx) => ({ lineIndex: idx, text })),
         },
       },
-      select: { id: true },
+      select: {
+        id: true,
+        lines: { select: { id: true, lineIndex: true } },
+      },
     });
 
-    const response: SubmitBarsResponse = { submissionId: submission.id };
+    // Run rule checks (pure computation — no DB access)
+    const challenge = room.challengeSnapshot as unknown as ChallengeDTO | null;
+    if (challenge) {
+      const { results, allHighlights } = runRuleChecks(body.lines, challenge);
+      const lineIdByIndex = new Map(submissionRecord.lines.map((l) => [l.lineIndex, l.id]));
+
+      // Persist rule check results — non-fatal (a bug here must not break submission)
+      try {
+        const spanData = allHighlights.flatMap((h) => {
+          const submissionLineId = lineIdByIndex.get(h.lineIndex);
+          if (!submissionLineId) return [];
+          return [{
+            submissionLineId,
+            startIndex: h.startIndex,
+            endIndex: h.endIndex,
+            category: h.category,
+            color: CATEGORY_COLOR[h.category] ?? h.category.toLowerCase(),
+            confidence: h.confidence,
+            explanation: h.explanation,
+          }];
+        });
+
+        await Promise.all([
+          results.length > 0
+            ? prisma.constraintResult.createMany({
+                data: results.map((r) => ({
+                  submissionId: submissionRecord.id,
+                  ruleType: r.ruleType,
+                  lineIndex: r.lineIndex,
+                  passed: r.status === "PASS",
+                  confidence: r.confidence,
+                  explanation: r.explanation,
+                })),
+              })
+            : Promise.resolve(),
+          spanData.length > 0
+            ? prisma.highlightSpan.createMany({ data: spanData })
+            : Promise.resolve(),
+        ]);
+      } catch (err) {
+        // Non-fatal: rule checks failing must not prevent the submission from being recorded
+        console.error("[submit] Rule check save failed (non-fatal):", err);
+      }
+    }
+
+    const response: SubmitBarsResponse = { submissionId: submissionRecord.id };
     return NextResponse.json(response, { status: 201 });
   } catch (err) {
     console.error("[POST /api/rooms/[roomCode]/submit]", err);

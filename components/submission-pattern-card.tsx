@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import type { ChallengeDTO, SubmissionLineDTO } from "@/lib/types";
 import { buildMeta, C } from "@/lib/lyric-meta";
+import { HighlightedText } from "@/components/highlighted-text";
 
 const PLACEMENT_EMOJI: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
 
@@ -142,7 +143,12 @@ export function SubmissionPatternCard({
                   {m.chip.label}
                 </span>
                 {text ? (
-                  <p className="text-sm text-zinc-900 leading-snug font-normal">{text}</p>
+                  <p className="text-sm text-zinc-900 leading-snug font-normal">
+                    <HighlightedText
+                      text={text}
+                      spans={line?.highlightSpans ?? []}
+                    />
+                  </p>
                 ) : (
                   <p className="text-sm text-zinc-300 italic leading-snug">—</p>
                 )}

@@ -262,6 +262,22 @@ Format:
 
 ---
 
+## 2026-06-02 — Rule check architecture: heuristic-first, AI-placeholder, non-fatal saving
+
+**Decision:** The Phase 5 constraint engine is built in three tiers: (1) deterministic local checks (line count, required words, alliteration, end-rhyme heuristic, chain rhyme, theme reference) with confidence 1.0–0.85; (2) AI-placeholder checks (metaphor, punchline, callback, internal rhyme, assonance) that return NEEDS_REVIEW and confidence 0–0.65 until replaced with real AI calls; (3) highlight span saving is non-fatal — if the DB write fails, the submission still records successfully.
+
+**Reason:**
+- No API key required for the app to function — all current checks run locally in the submit handler
+- Submission must never be blocked by a rule check bug (constraint-check code runs after the submission row is created; saving failures are caught and logged but not re-thrown)
+- Creative quality is never scored — AI checks only detect structural pattern compliance (does this line end with a rhyming word?), never judge whether bars are good
+- `NEEDS_REVIEW` status communicates uncertainty to future tooling without lying to the user
+
+**Tradeoffs:** Heuristic rhyme detection is naive (vowel-nucleus matching). False positives and negatives are expected. This is intentional for MVP — the patterns are visible to users as colored highlights, not as gatekeeping. Real AI calls replace the placeholders in Phase 5B.
+
+**How to apply:** When adding a new ConstraintType check: add it to `deterministic.ts` if it can be determined locally (confidence ≥ 0.8), or add it to `ai-placeholder.ts` as NEEDS_REVIEW if it requires semantic understanding. Wire it in `run-rule-checks.ts`. The saving loop in the submit route handles both ConstraintResult and HighlightSpan rows automatically.
+
+---
+
 ## 2026-06-01 — Tailwind CSS only (no styled-components, no CSS modules)
 
 **Decision:** Style everything with Tailwind CSS utility classes. Use shadcn/ui selectively for complex components (modals, selects) by copying component code.

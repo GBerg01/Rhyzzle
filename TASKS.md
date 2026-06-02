@@ -119,12 +119,13 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 
 | Status | Task | Acceptance Criteria | Files |
 |---|---|---|---|
-| `TODO` | Constraint evaluation service | Given a submission + challenge rules, returns ConstraintResult[] | `lib/constraint-engine.ts` |
-| `TODO` | Trigger constraint check on submission | ConstraintResult rows saved after submit | `app/api/rooms/[roomCode]/submit/route.ts` |
-| `TODO` | Highlight span detection (end rhyme) | HighlightSpan rows created for end rhyming words | `lib/highlight-engine.ts` |
-| `TODO` | Highlight rendering in submission display | Blue highlights on end-rhyming words | `components/submission-display.tsx` |
-| `TODO` | All highlight categories | All 10 color categories rendering | `components/submission-display.tsx` |
-| `TODO` | Constraint failure indicators in editor | Red indicator on lines violating constraints | `components/bar-editor.tsx` |
+| `DONE` | Constraint evaluation service | Given a submission + challenge rules, returns RuleCheckResult[] | `lib/rule-checks/run-rule-checks.ts`, `lib/rule-checks/deterministic.ts`, `lib/rule-checks/ai-placeholder.ts`, `lib/rule-checks/types.ts` |
+| `DONE` | Trigger constraint check on submission | ConstraintResult + HighlightSpan rows saved non-fatally after submit | `app/api/rooms/[roomCode]/submit/route.ts` |
+| `DONE` | Highlight span detection (end rhyme, required words, alliteration, etc.) | HighlightSpan rows created for all detected patterns | `lib/rule-checks/deterministic.ts` |
+| `DONE` | Highlight rendering in submission display | All 10 color categories rendering in SubmissionPatternCard | `components/highlighted-text.tsx`, `components/submission-pattern-card.tsx` |
+| `DONE` | Highlight spans returned by GET API | Spans included in SubmissionDTO for VOTING/REVEAL/CHALLENGE_LINK | `app/api/rooms/[roomCode]/route.ts` |
+| `TODO` | Constraint failure indicators in editor | Live indicators while user types (requires real-time check) | `components/bar-editor.tsx` |
+| `TODO` | Real AI checks (Phase 5B) | Replace heuristic placeholders with actual AI model calls | `lib/rule-checks/ai-placeholder.ts` |
 
 ---
 

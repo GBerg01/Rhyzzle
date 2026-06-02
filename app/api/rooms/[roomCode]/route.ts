@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type {
   SubmissionDTO, RoomStateDTO, BeatDTO, ChallengeDTO,
   ParticipantDTO, RoomStatus, RoomPrivacy, VotingMode, RoomMode, RankingDTO,
+  HighlightCategory, HighlightSpanDTO,
 } from "@/lib/types";
 import { prisma } from "@/lib/prisma";
 import { computePlacementResults } from "@/lib/utils";
@@ -26,7 +27,12 @@ export async function GET(
         participants: { orderBy: { joinedAt: "asc" } },
         submissions: {
           orderBy: { createdAt: "asc" },
-          include: { lines: { orderBy: { lineIndex: "asc" } } },
+          include: {
+            lines: {
+              orderBy: { lineIndex: "asc" },
+              include: { highlightSpans: { orderBy: { startIndex: "asc" } } },
+            },
+          },
         },
         votes: true,
       },
@@ -105,6 +111,20 @@ export async function GET(
 
     let submissions: SubmissionDTO[] | undefined;
 
+    /** Map a DB HighlightSpan row to the DTO shape. */
+    const toSpanDTO = (h: {
+      id: string; startIndex: number; endIndex: number;
+      category: string; color: string; confidence: number | null; explanation: string | null;
+    }): HighlightSpanDTO => ({
+      id: h.id,
+      startIndex: h.startIndex,
+      endIndex: h.endIndex,
+      category: h.category as HighlightCategory,
+      color: h.color,
+      confidence: h.confidence,
+      explanation: h.explanation,
+    });
+
     if (room.roomMode === "CHALLENGE_LINK") {
       submissions = room.submissions.map((sub) => {
         const participant = room.participants.find((p) => p.id === sub.participantId);
@@ -119,7 +139,7 @@ export async function GET(
             id: l.id,
             lineIndex: l.lineIndex,
             text: l.text,
-            highlightSpans: [],
+            highlightSpans: l.highlightSpans.map(toSpanDTO),
           })),
           voteCount: isLocked ? (pl?.firstPlaceVotes ?? 0) : 0,
           isWinner: isLocked && (pl?.finalPlacement ?? 999) === 1 && (pl?.rankingPoints ?? 0) > 0,
@@ -150,7 +170,7 @@ export async function GET(
             id: l.id,
             lineIndex: l.lineIndex,
             text: l.text,
-            highlightSpans: [],
+            highlightSpans: l.highlightSpans.map(toSpanDTO),
           })),
           voteCount: isReveal ? (pl?.firstPlaceVotes ?? 0) : 0,
           isWinner: isReveal && (pl?.finalPlacement ?? 999) === 1 && (pl?.rankingPoints ?? 0) > 0,

@@ -87,6 +87,84 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 15 — 2026-06-02
+
+**Goal:** Build the Phase 5 constraint engine + lyric highlight rendering system. Run rule checks on submission and display colored highlights in SubmissionPatternCard.
+
+**What was done:**
+
+### `lib/rule-checks/types.ts` (new)
+- `RuleCheckStatus = "PASS" | "NEEDS_REVIEW" | "MISSING"` — never blocks submission
+- `ComputedHighlightSpan` — lineIndex, startIndex, endIndex, category, confidence, explanation
+- `RuleCheckResult` — ruleType, lineIndex, status, confidence, explanation, highlights
+- `RunChecksOutput` — results + allHighlights (flat list of all span data)
+- `CATEGORY_COLOR` — maps HighlightCategory → color name string for DB storage
+
+### `lib/rule-checks/deterministic.ts` (new)
+- `checkLineCount` — PASS/MISSING with confidence 1.0
+- `checkRequiredWords` — word-boundary regex, highlights each found word as REQUIRED_WORD; MISSING per absent word
+- `checkAlliteration` — most-common first-letter heuristic across content words (len > 2), PASS at 2+ matching, confidence 0.85
+- `checkEndRhymePair` — vowel-nucleus rhyme heuristic, highlights end words as END_RHYME
+- `checkRhymeScheme` — groups scheme letters, runs pair checks, reports per-group
+- `checkChainRhyme` — first word of line N vs last word of line N-1
+- `checkThemeReference` — keyword + stem word search in theme string
+
+### `lib/rule-checks/ai-placeholder.ts` (new)
+- `checkMetaphor` — detects simile/metaphor pattern strings (`like a`, `as a`, `is a`), PASS at confidence 0.65 if found, NEEDS_REVIEW otherwise
+- `checkPunchline` — always NEEDS_REVIEW (too subjective for deterministic), weak heuristic for `!?` / slang
+- `checkCallback` — shared content-word detection between lines, NEEDS_REVIEW
+- `checkInternalRhyme` — last-2-chars matching for non-adjacent words, NEEDS_REVIEW
+- `checkAssonance` — always NEEDS_REVIEW, TODO Phase 5B
+- All these are designed to be replaced by actual AI calls in Phase 5B
+
+### `lib/rule-checks/run-rule-checks.ts` (new)
+- Orchestrator that runs all applicable checks given `lines: string[]` + `ChallengeDTO`
+- Always runs: line count, required words
+- Per ConstraintType: routes to appropriate deterministic or AI-placeholder check
+- Uses `deriveScheme()` from `lib/lyric-meta` for rhyme scheme detection
+- Returns `{ results, allHighlights }` — no AI calls, no API keys required
+
+### `lib/utils.ts`
+- Added `HIGHLIGHT_COLORS_LIGHT` — 10-category color map for white-background cards (className + label per category)
+
+### `components/highlighted-text.tsx` (new)
+- Renders a line of text with colored inline spans
+- Sorts spans by startIndex, skips out-of-bounds
+- First span wins on overlap (later overlapping spans skipped)
+- Falls back to plain text for unknown categories
+- Uses `HIGHLIGHT_COLORS_LIGHT` from utils
+
+### `components/submission-pattern-card.tsx`
+- Updated bar text rendering to use `HighlightedText` component instead of plain `<p>`
+- Passes `line?.highlightSpans ?? []` to HighlightedText
+
+### `app/api/rooms/[roomCode]/submit/route.ts`
+- Imports `runRuleChecks` + `CATEGORY_COLOR`
+- Fetches `challengeSnapshot` from room
+- Creates submission (+ lines) then runs rule checks (pure computation — no DB access in checks)
+- Persists `ConstraintResult` rows + `HighlightSpan` rows non-fatally (bug in saving must not break the submission)
+- Submission returned to client regardless of whether check-saving succeeds
+
+### `app/api/rooms/[roomCode]/route.ts`
+- Prisma query: now includes `highlightSpans` on each line (ordered by startIndex)
+- Added `toSpanDTO()` helper mapping DB row → `HighlightSpanDTO`
+- Both CHALLENGE_LINK and GROUP_ROOM submission builders now include real spans instead of `[]`
+
+**TypeScript:** `pnpm tsc --noEmit` — clean, zero errors.
+
+**Key constraints honored:**
+- No AI scoring of creative quality (see DECISIONS.md)
+- No API key required — all checks are deterministic or heuristic locally
+- Submission is never blocked by rule check failures
+- Humans still vote who cooked; AI only detects pattern compliance
+
+**Known limitations / Phase 5B work:**
+- Metaphor, punchline, callback, internal rhyme, assonance are heuristic placeholders — designed to be replaced with AI model calls
+- CHALLENGE_LINK room creation (`POST /api/rooms`) submits creator's bars but does NOT run rule checks on them (TODO in that route)
+- Live editor highlights (while typing) not yet implemented
+
+---
+
 ## Session 14 — 2026-06-02
 
 **Goal:** Create a copyright-free synthetic placeholder beat so BeatPlayer can actually play audio during MVP testing.

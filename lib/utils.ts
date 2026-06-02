@@ -208,15 +208,30 @@ export function computePlacementResults(
 
 import type { HighlightCategory } from "./types";
 
+// Dark-background highlights (used in dark-themed cards / dark UIs)
 export const HIGHLIGHT_COLORS: Record<HighlightCategory, { bg: string; text: string; label: string }> = {
-  END_RHYME: { bg: "bg-blue-500/20", text: "text-blue-300", label: "End Rhyme" },
-  INTERNAL_RHYME: { bg: "bg-purple-500/20", text: "text-purple-300", label: "Internal Rhyme" },
-  ALLITERATION: { bg: "bg-pink-500/20", text: "text-pink-300", label: "Alliteration" },
-  ASSONANCE: { bg: "bg-teal-500/20", text: "text-teal-300", label: "Assonance" },
-  METAPHOR: { bg: "bg-green-500/20", text: "text-green-300", label: "Metaphor" },
-  PUNCHLINE: { bg: "bg-yellow-500/20", text: "text-yellow-300", label: "Punchline" },
-  DOUBLE_MEANING: { bg: "bg-orange-500/20", text: "text-orange-300", label: "Double Meaning" },
-  CALLBACK: { bg: "bg-amber-800/20", text: "text-amber-500", label: "Callback" },
-  REQUIRED_WORD: { bg: "bg-transparent", text: "text-white ring-1 ring-amber-400", label: "Required Word" },
-  FAILED_REQUIREMENT: { bg: "bg-transparent", text: "text-white underline decoration-red-500", label: "Failed Requirement" },
+  END_RHYME:          { bg: "bg-blue-500/20",   text: "text-blue-300",   label: "End Rhyme" },
+  INTERNAL_RHYME:     { bg: "bg-purple-500/20", text: "text-purple-300", label: "Internal Rhyme" },
+  ALLITERATION:       { bg: "bg-pink-500/20",   text: "text-pink-300",   label: "Alliteration" },
+  ASSONANCE:          { bg: "bg-teal-500/20",   text: "text-teal-300",   label: "Assonance" },
+  METAPHOR:           { bg: "bg-green-500/20",  text: "text-green-300",  label: "Metaphor" },
+  PUNCHLINE:          { bg: "bg-yellow-500/20", text: "text-yellow-300", label: "Punchline" },
+  DOUBLE_MEANING:     { bg: "bg-orange-500/20", text: "text-orange-300", label: "Double Meaning" },
+  CALLBACK:           { bg: "bg-amber-800/20",  text: "text-amber-500",  label: "Callback" },
+  REQUIRED_WORD:      { bg: "bg-transparent",   text: "text-white ring-1 ring-amber-400",             label: "Required Word" },
+  FAILED_REQUIREMENT: { bg: "bg-transparent",   text: "text-white underline decoration-red-500",      label: "Failed Requirement" },
+};
+
+// Light-background highlights (used on white pattern board cards)
+export const HIGHLIGHT_COLORS_LIGHT: Record<HighlightCategory, { className: string; label: string }> = {
+  END_RHYME:          { className: "bg-blue-100 text-blue-800 rounded px-0.5",                              label: "End Rhyme" },
+  INTERNAL_RHYME:     { className: "bg-cyan-100 text-cyan-800 rounded px-0.5",                              label: "Internal Rhyme" },
+  ALLITERATION:       { className: "bg-orange-100 text-orange-800 rounded px-0.5",                          label: "Alliteration" },
+  ASSONANCE:          { className: "bg-teal-100 text-teal-800 rounded px-0.5",                              label: "Assonance" },
+  METAPHOR:           { className: "bg-green-100 text-green-800 rounded px-0.5",                            label: "Metaphor" },
+  PUNCHLINE:          { className: "bg-purple-100 text-purple-800 rounded px-0.5",                          label: "Punchline" },
+  DOUBLE_MEANING:     { className: "bg-orange-100 text-orange-800 rounded px-0.5",                          label: "Double Meaning" },
+  CALLBACK:           { className: "bg-pink-100 text-pink-800 rounded px-0.5",                              label: "Callback" },
+  REQUIRED_WORD:      { className: "bg-amber-100 text-amber-900 ring-1 ring-amber-400 rounded px-0.5",      label: "Required Word" },
+  FAILED_REQUIREMENT: { className: "underline decoration-red-500 decoration-2 text-red-700",                label: "Missing" },
 };
