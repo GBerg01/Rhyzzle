@@ -74,6 +74,7 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 | `DONE` | Friends can join challenge link | ChallengeLinkJoinView shown; join → write bars | `app/room/[roomCode]/page.tsx` |
 | `DONE` | Copy Result on post-submit | Copies bars + share link to clipboard | `app/play/[barCount]/page.tsx` |
 | `DONE` | Share card in challenge link live state | Room URL + "Send to Group Chat" shown after submitting | `app/room/[roomCode]/page.tsx` |
+| `DONE` | Dev recovery UX — Challenge Friends error | Failed creation shows real error, Try Again, Start Fresh, dev-only DB hint | `app/play/[barCount]/page.tsx`, `app/api/rooms/route.ts` |
 | `TODO` | End-to-end QA | Solo play → challenge friends → friends join → write → vote → final results | All |
 
 ---

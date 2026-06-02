@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
   DAILY_BEAT,
   DAILY_TITLE,
@@ -13,17 +13,14 @@ import {
 import type { DailyBarCount } from "@/lib/daily-challenge";
 import { BeatPlayer } from "@/components/beat-player";
 import { LyricPuzzleCanvas } from "@/components/lyric-puzzle-canvas";
-import { cn } from "@/lib/utils";
+import { cn, copyToClipboard } from "@/lib/utils";
 import type { BeatDTO } from "@/lib/types";
 
-// DAILY_BEAT is structurally compatible with BeatDTO (string ⊂ string | null)
 const BEAT_DTO = DAILY_BEAT as unknown as BeatDTO;
-
 const VALID_BAR_COUNTS: DailyBarCount[] = [3, 6, 8];
 
 export default function DailyPlayPage() {
   const { barCount: barCountParam } = useParams<{ barCount: string }>();
-  const router = useRouter();
 
   const barCount = Number(barCountParam) as DailyBarCount;
   const isValid = VALID_BAR_COUNTS.includes(barCount);
@@ -33,9 +30,16 @@ export default function DailyPlayPage() {
     Array(isValid ? barCount : 6).fill("")
   );
   const [displayName, setDisplayName] = useState("");
+
+  // Challenge Friends state
   const [isCreatingChallenge, setIsCreatingChallenge] = useState(false);
   const [challengeError, setChallengeError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [challengeRoomCode, setChallengeRoomCode] = useState<string | null>(null);
+  const [challengeLinkCopied, setChallengeLinkCopied] = useState(false);
+  const [challengeLinkCopyFailed, setChallengeLinkCopyFailed] = useState(false);
+
+  // Copy Result state
+  const [copyResultState, setCopyResultState] = useState<"idle" | "copied" | "fallback">("idle");
 
   if (!isValid) {
     return (
@@ -69,11 +73,37 @@ export default function DailyPlayPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function buildResultText(): string {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return [
+      `I finished today's Rhyzzle 🎤`,
+      `${DAILY_TITLE} · ${barCount} Bars`,
+      ``,
+      ...barLines.filter((l) => l.trim()).map((l) => l.trim()),
+      ``,
+      `Try it: ${origin}/play/${barCount}`,
+    ].join("\n");
+  }
+
+  async function handleCopyResult() {
+    const text = buildResultText();
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopyResultState("copied");
+      setTimeout(() => setCopyResultState("idle"), 2500);
+    } else {
+      setCopyResultState("fallback");
+    }
+  }
+
   async function handleChallengeFriends() {
     const name = displayName.trim();
     if (!name) return;
     setIsCreatingChallenge(true);
     setChallengeError(null);
+    setChallengeRoomCode(null);
+    setChallengeLinkCopied(false);
+    setChallengeLinkCopyFailed(false);
 
     try {
       const submittedBars = barLines.map((l) => l.trimEnd()).filter((l) => l.trim().length > 0);
@@ -93,32 +123,36 @@ export default function DailyPlayPage() {
         throw new Error(data.error ?? "Failed to create challenge link");
       }
 
-      const { roomCode } = await res.json();
-      router.push(`/room/${roomCode}`);
+      const data = await res.json();
+      const code: string = data.roomCode;
+      if (!code) throw new Error("No room code returned from server");
+
+      setChallengeRoomCode(code);
+
+      // Try to auto-copy the link immediately
+      const url = `${typeof window !== "undefined" ? window.location.origin : ""}/room/${code}`;
+      const ok = await copyToClipboard(url);
+      if (ok) {
+        setChallengeLinkCopied(true);
+      } else {
+        setChallengeLinkCopyFailed(true);
+      }
     } catch (err) {
       setChallengeError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
       setIsCreatingChallenge(false);
     }
   }
 
-  async function handleCopyResult() {
-    const submittedLines = barLines.filter((l) => l.trim());
-    const origin = typeof window !== "undefined" ? window.location.origin : "https://rhyzzle.com";
-    const text = [
-      `I finished today's Rhyzzle 🎤`,
-      `${DAILY_TITLE} · ${barCount} Bars`,
-      ``,
-      ...submittedLines.map((l) => l.trim()),
-      ``,
-      `Try it: ${origin}/play/${barCount}`,
-    ].join("\n");
-
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    } catch {
-      // clipboard unavailable — fail silently
+  async function handleCopyChallengeLink() {
+    if (!challengeRoomCode) return;
+    const url = `${typeof window !== "undefined" ? window.location.origin : ""}/room/${challengeRoomCode}`;
+    const ok = await copyToClipboard(url);
+    if (ok) {
+      setChallengeLinkCopied(true);
+      setChallengeLinkCopyFailed(false);
+    } else {
+      setChallengeLinkCopyFailed(true);
     }
   }
 
@@ -127,7 +161,6 @@ export default function DailyPlayPage() {
   if (phase === "writing") {
     return (
       <main className="min-h-screen bg-zinc-950 text-zinc-50">
-        {/* Nav */}
         <nav className="flex items-center gap-4 px-5 py-4 border-b border-zinc-900 sticky top-0 z-10 bg-zinc-950">
           <Link href="/play" className="text-zinc-400 hover:text-white transition-colors text-lg">
             ←
@@ -142,16 +175,13 @@ export default function DailyPlayPage() {
         </nav>
 
         <div className="max-w-sm mx-auto px-5 pt-5 pb-36 space-y-4">
-          {/* Prompt */}
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
             <span className="text-xs font-semibold text-zinc-400 leading-snug">{DAILY_PROMPT}</span>
           </div>
 
-          {/* Beat player */}
           <BeatPlayer beat={BEAT_DTO} />
 
-          {/* Puzzle canvas */}
           <LyricPuzzleCanvas
             challenge={challenge}
             lines={barLines}
@@ -159,7 +189,6 @@ export default function DailyPlayPage() {
           />
         </div>
 
-        {/* Sticky submit */}
         <div className="fixed bottom-0 inset-x-0 z-50 pointer-events-none">
           <div
             className="max-w-sm mx-auto px-5 pb-7 pt-6 pointer-events-auto"
@@ -199,6 +228,10 @@ export default function DailyPlayPage() {
   // ── Post-submit screen ─────────────────────────────────────────────────────
 
   const submittedLines = barLines.filter((l) => l.trim());
+  const challengeUrl =
+    challengeRoomCode && typeof window !== "undefined"
+      ? `${window.location.origin}/room/${challengeRoomCode}`
+      : null;
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-50">
@@ -228,67 +261,158 @@ export default function DailyPlayPage() {
           </div>
         </div>
 
-        {/* Name input — needed to create challenge link */}
-        <div>
-          <label className="text-xs font-black uppercase tracking-widest text-zinc-500 block mb-2">
-            Your name
-          </label>
-          <input
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && displayName.trim()) handleChallengeFriends();
-            }}
-            placeholder="e.g. Grayson"
-            maxLength={20}
-            autoFocus
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3.5 text-white placeholder-zinc-600 text-base font-semibold focus:outline-none focus:border-amber-400 transition-colors"
-          />
-          <p className="text-xs text-zinc-600 mt-1.5">Used when you challenge friends.</p>
-        </div>
+        {/* Challenge Friends flow */}
+        {challengeRoomCode ? (
+          /* ── Challenge link created — show it in-page ── */
+          <div className="space-y-3">
+            <div className="bg-green-400/10 border border-green-400/30 rounded-2xl p-4 space-y-3">
+              <p className="text-green-400 text-xs font-black uppercase tracking-widest">
+                ✓ Challenge link ready
+              </p>
 
-        {challengeError && (
-          <p className="text-sm text-red-400 bg-red-400/10 border border-red-400/20 rounded-xl px-4 py-3">
-            {challengeError}
-          </p>
+              {challengeLinkCopied && (
+                <p className="text-green-400 text-sm font-semibold">Copied link.</p>
+              )}
+
+              {challengeLinkCopyFailed && (
+                <p className="text-zinc-400 text-xs">
+                  Couldn&apos;t auto-copy. Press and hold the link below to copy.
+                </p>
+              )}
+
+              {/* Selectable link */}
+              <div className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2.5 select-all cursor-text">
+                <p className="text-zinc-200 text-xs font-mono break-all">{challengeUrl}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={handleCopyChallengeLink}
+                  className="border border-zinc-700 text-zinc-300 font-semibold text-sm py-3 rounded-xl hover:border-zinc-600 transition-all active:scale-95"
+                >
+                  {challengeLinkCopied ? "✓ Copied!" : "Copy Link"}
+                </button>
+                <Link
+                  href={`/room/${challengeRoomCode}`}
+                  className="bg-amber-400 text-zinc-950 font-black text-sm py-3 rounded-xl text-center hover:bg-amber-300 transition-all active:scale-95"
+                >
+                  Open Room →
+                </Link>
+              </div>
+            </div>
+
+            <p className="text-zinc-500 text-xs text-center leading-relaxed">
+              Friends write to the same beat and prompt. Everyone ranks who cooked.
+            </p>
+          </div>
+        ) : (
+          /* ── Name + Challenge Friends button ── */
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-black uppercase tracking-widest text-zinc-500 block mb-2">
+                Your name
+              </label>
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && displayName.trim()) handleChallengeFriends();
+                }}
+                placeholder="e.g. Grayson"
+                maxLength={20}
+                autoFocus
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3.5 text-white placeholder-zinc-600 text-base font-semibold focus:outline-none focus:border-amber-400 transition-colors"
+              />
+              <p className="text-xs text-zinc-600 mt-1.5">Used when you challenge friends.</p>
+            </div>
+
+            {challengeError ? (
+              <div className="space-y-3">
+                <div className="bg-red-400/10 border border-red-400/20 rounded-xl p-4 space-y-2">
+                  <p className="text-sm font-semibold text-red-400">Couldn&apos;t create challenge link</p>
+                  <p className="text-sm text-red-300">{challengeError}</p>
+                  {process.env.NODE_ENV === "development" && (
+                    <p className="text-xs text-zinc-500 pt-2 border-t border-zinc-800">
+                      Local dev: if you recently reset the DB, try a fresh incognito window or restart pnpm dev.
+                    </p>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={handleChallengeFriends}
+                    disabled={!displayName.trim() || isCreatingChallenge}
+                    className="font-semibold text-sm py-3 rounded-xl bg-zinc-800 text-white hover:bg-zinc-700 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {isCreatingChallenge ? "Retrying..." : "Try Again"}
+                  </button>
+                  <Link
+                    href="/play"
+                    className="font-semibold text-sm py-3 rounded-xl border border-zinc-700 text-zinc-400 hover:text-white text-center transition-all active:scale-95"
+                  >
+                    Start Fresh
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <button
+                  onClick={handleChallengeFriends}
+                  disabled={!displayName.trim() || isCreatingChallenge}
+                  className={cn(
+                    "w-full font-black text-lg py-4 rounded-2xl transition-all active:scale-95",
+                    "bg-amber-400 text-zinc-950 hover:bg-amber-300",
+                    "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+                  )}
+                >
+                  {isCreatingChallenge ? "Creating link..." : "Challenge Friends →"}
+                </button>
+                <p className="text-zinc-500 text-xs text-center leading-relaxed">
+                  {displayName.trim()
+                    ? "Creates a shareable link. Friends write their bars. Vote who cooked."
+                    : "Enter your name above to challenge friends."}
+                </p>
+              </div>
+            )}
+          </div>
         )}
 
-        {/* Primary: Challenge Friends */}
-        <div className="space-y-2">
-          <button
-            onClick={handleChallengeFriends}
-            disabled={!displayName.trim() || isCreatingChallenge}
-            className={cn(
-              "w-full font-black text-lg py-4 rounded-2xl transition-all active:scale-95",
-              "bg-amber-400 text-zinc-950 hover:bg-amber-300",
-              "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
-            )}
-          >
-            {isCreatingChallenge ? "Creating challenge link..." : "Challenge Friends →"}
-          </button>
-          <p className="text-zinc-500 text-xs text-center leading-relaxed">
-            {displayName.trim()
-              ? "Creates a shareable link. Friends write their bars. Vote who cooked."
-              : "Enter your name above to challenge friends."}
-          </p>
-        </div>
-
-        {/* Secondary actions */}
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={handleCopyResult}
-            className="border border-zinc-800 text-zinc-300 font-semibold text-sm py-3.5 rounded-xl hover:border-zinc-700 hover:text-white transition-all active:scale-95"
-          >
-            {copied ? "✓ Copied!" : "Copy Result"}
-          </button>
-          <Link
-            href={`/create?barCount=${barCount}`}
-            className="border border-zinc-800 text-zinc-300 font-semibold text-sm py-3.5 rounded-xl hover:border-zinc-700 hover:text-white transition-all active:scale-95 text-center"
-          >
-            Start Group Room
-          </Link>
-        </div>
+        {/* Copy Result — with fallback */}
+        {copyResultState === "fallback" ? (
+          <div className="space-y-2">
+            <p className="text-xs text-zinc-400 text-center">
+              Couldn&apos;t auto-copy. Select the text below to copy manually.
+            </p>
+            <textarea
+              readOnly
+              value={buildResultText()}
+              rows={submittedLines.length + 4}
+              onFocus={(e) => e.target.select()}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-200 text-xs font-mono resize-none focus:outline-none focus:border-zinc-600"
+            />
+            <button
+              onClick={() => setCopyResultState("idle")}
+              className="text-xs text-zinc-600 text-center w-full hover:text-zinc-400 transition-colors py-1"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={handleCopyResult}
+              className="border border-zinc-800 text-zinc-300 font-semibold text-sm py-3.5 rounded-xl hover:border-zinc-700 hover:text-white transition-all active:scale-95"
+            >
+              {copyResultState === "copied" ? "✓ Copied!" : "Copy Result"}
+            </button>
+            <Link
+              href={`/create?barCount=${barCount}`}
+              className="border border-zinc-800 text-zinc-300 font-semibold text-sm py-3.5 rounded-xl hover:border-zinc-700 hover:text-white transition-all active:scale-95 text-center"
+            >
+              Start Group Room
+            </Link>
+          </div>
+        )}
 
         <Link
           href="/"

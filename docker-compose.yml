@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rhyzzle
+      POSTGRES_PASSWORD: rhyzzle
+      POSTGRES_DB: rhyzzle
+    ports:
+      - "5432:5432"
+    volumes:
+      - rhyzzle_postgres:/var/lib/postgresql/data
+
+volumes:
+  rhyzzle_postgres:

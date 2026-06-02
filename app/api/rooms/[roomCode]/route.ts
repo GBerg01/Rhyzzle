@@ -1,20 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getRoom,
-  hasParticipantSubmitted,
-  hasParticipantVoted,
-  getSubmissionsForRoom,
-  getVoteCountsForRoom,
-  getVotesForRoom,
-  getVoteForParticipant,
-} from "@/lib/room-store";
-import type { SubmissionDTO, RoomStateDTO } from "@/lib/types";
+import type {
+  SubmissionDTO, RoomStateDTO, BeatDTO, ChallengeDTO,
+  ParticipantDTO, RoomStatus, RoomPrivacy, VotingMode, RoomMode, RankingDTO,
+} from "@/lib/types";
+import { prisma } from "@/lib/prisma";
+import { computePlacementResults } from "@/lib/utils";
 
-// GET /api/rooms/[roomCode] — fetch current room state
+// GET /api/rooms/[roomCode] — fetch current room state from DB.
 // Returns phase-appropriate data:
 //   WRITING: no submissions
-//   VOTING: anonymous submissions (no names, no vote counts)
-//   REVEAL: full submissions with names and vote counts, winner marked
+//   VOTING: anonymous submissions (no names, vote counts hidden)
+//   REVEAL: full submissions with names, placement data, Borda-count rankings
+//   CHALLENGE_LINK: submissions always visible; names/placement revealed after locksAt
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
@@ -23,124 +20,176 @@ export async function GET(
     const { roomCode } = await params;
     const upperCode = roomCode.toUpperCase();
 
-    const room = getRoom(upperCode);
+    const room = await prisma.room.findUnique({
+      where: { roomCode: upperCode },
+      include: {
+        participants: { orderBy: { joinedAt: "asc" } },
+        submissions: {
+          orderBy: { createdAt: "asc" },
+          include: { lines: { orderBy: { lineIndex: "asc" } } },
+        },
+        votes: true,
+      },
+    });
+
     if (!room) {
       return NextResponse.json({ error: "Room not found" }, { status: 404 });
     }
 
-    // Identify the requester from their session cookie
+    const beat = room.beatSnapshot as unknown as BeatDTO;
+    const challenge = room.challengeSnapshot as unknown as ChallengeDTO;
+
+    if (!beat || !challenge) {
+      return NextResponse.json({ error: "Room data is corrupted" }, { status: 500 });
+    }
+
     const participantCookie = req.cookies.get("rhyzzle_participant")?.value ?? null;
     const currentParticipant = participantCookie
       ? room.participants.find((p) => p.id === participantCookie) ?? null
       : null;
+    const currentParticipantId = currentParticipant?.id ?? null;
 
-    const currentParticipantHasSubmitted = currentParticipant
-      ? hasParticipantSubmitted(upperCode, currentParticipant.id)
+    const submittedParticipantIds = new Set(room.submissions.map((s) => s.participantId));
+
+    // Group votes by voter (ranked voting: one voter = multiple vote rows)
+    const byVoter = new Map<string, { submissionId: string; rankPosition: number }[]>();
+    for (const v of room.votes) {
+      if (!byVoter.has(v.participantId)) byVoter.set(v.participantId, []);
+      byVoter.get(v.participantId)!.push({
+        submissionId: v.submissionId,
+        rankPosition: v.rankPosition,
+      });
+    }
+
+    const votedCount = byVoter.size;
+
+    const currentParticipantHasSubmitted = currentParticipantId
+      ? submittedParticipantIds.has(currentParticipantId)
+      : false;
+    const currentParticipantHasVoted = currentParticipantId
+      ? byVoter.has(currentParticipantId)
       : false;
 
-    const currentParticipantHasVoted = currentParticipant
-      ? hasParticipantVoted(upperCode, currentParticipant.id)
-      : false;
+    const currentParticipantRankings: RankingDTO[] = currentParticipantId
+      ? (byVoter.get(currentParticipantId) ?? [])
+          .slice()
+          .sort((a, b) => a.rankPosition - b.rankPosition)
+      : [];
 
-    // Voted count — how many unique participants have voted
-    const votes = getVotesForRoom(upperCode);
-    const votedCount = votes.length;
-
-    // Lock state — only meaningful for CHALLENGE_LINK rooms
-    const locksAtStr = room.locksAt;
     const isLocked =
-      room.roomMode === "CHALLENGE_LINK" && !!locksAtStr
-        ? Date.now() >= new Date(locksAtStr).getTime()
+      room.roomMode === "CHALLENGE_LINK" && !!room.locksAt
+        ? Date.now() >= room.locksAt.getTime()
         : false;
 
-    // Which submission the current participant voted for (CHALLENGE_LINK: allow vote change)
-    const currentParticipantVotedForId = currentParticipant
-      ? (getVoteForParticipant(upperCode, currentParticipant.id)?.submissionId ?? null)
-      : null;
+    const participants: ParticipantDTO[] = room.participants.map((p) => ({
+      id: p.id,
+      nickname: p.nickname,
+      isHost: p.isHost,
+      joinedAt: p.joinedAt.toISOString(),
+      hasSubmitted: submittedParticipantIds.has(p.id),
+    }));
 
-    // Build submissions depending on room mode
+    // Compute Borda-count placements — only meaningful once there are votes
+    const placements =
+      room.votes.length > 0
+        ? computePlacementResults(
+            room.submissions.map((s) => ({ id: s.id })),
+            room.votes.map((v) => ({
+              submissionId: v.submissionId,
+              participantId: v.participantId,
+              rankPosition: v.rankPosition,
+            })),
+          )
+        : [];
+    const placementById = new Map(placements.map((p) => [p.submissionId, p]));
+
     let submissions: SubmissionDTO[] | undefined;
 
     if (room.roomMode === "CHALLENGE_LINK") {
-      // Challenge Links: always return submissions so the voting UI can show them.
-      // Before locksAt: anonymous (no names, vote counts hidden).
-      // After locksAt: full names and real vote counts (final results).
-      const storedSubs = getSubmissionsForRoom(upperCode);
-      if (storedSubs.length > 0) {
-        const voteCounts = getVoteCountsForRoom(upperCode);
-        let maxVotes = 0;
-        if (isLocked) {
-          for (const [, count] of voteCounts) {
-            if (count > maxVotes) maxVotes = count;
-          }
-        }
-        submissions = storedSubs.map((sub) => {
-          const participant = room.participants.find((p) => p.id === sub.participantId);
-          const isOwn = sub.participantId === currentParticipant?.id;
-          const voteCount = voteCounts.get(sub.submissionId) ?? 0;
-          return {
-            id: sub.submissionId,
-            participantId: isLocked ? sub.participantId : "",
-            nickname: isLocked ? (participant?.nickname ?? null) : null,
-            rawText: sub.rawText,
-            lines: sub.lines.map((text, idx) => ({
-              id: `${sub.submissionId}_line_${idx}`,
-              lineIndex: idx,
-              text,
-              highlightSpans: [],
-            })),
-            voteCount: isLocked ? voteCount : 0, // hide counts during live voting (prevent bandwagon)
-            isWinner: isLocked && maxVotes > 0 && voteCount === maxVotes,
-            isOwnSubmission: isOwn,
-            constraintResults: [],
-          } satisfies SubmissionDTO;
-        });
-      }
-    } else if (room.status === "VOTING" || room.status === "REVEAL") {
-      // GROUP_ROOM: existing state-machine logic unchanged
-      const storedSubs = getSubmissionsForRoom(upperCode);
-      const voteCounts = getVoteCountsForRoom(upperCode);
-      const isReveal = room.status === "REVEAL";
-
-      let maxVotes = 0;
-      if (isReveal) {
-        for (const [, count] of voteCounts) {
-          if (count > maxVotes) maxVotes = count;
-        }
-      }
-
-      submissions = storedSubs.map((sub) => {
+      submissions = room.submissions.map((sub) => {
         const participant = room.participants.find((p) => p.id === sub.participantId);
-        const isOwn = sub.participantId === currentParticipant?.id;
-        const voteCount = voteCounts.get(sub.submissionId) ?? 0;
+        const isOwn = sub.participantId === currentParticipantId;
+        const pl = placementById.get(sub.id);
         return {
-          id: sub.submissionId,
+          id: sub.id,
+          participantId: isLocked ? sub.participantId : "",
+          nickname: isLocked ? (participant?.nickname ?? null) : null,
+          rawText: sub.rawText,
+          lines: sub.lines.map((l) => ({
+            id: l.id,
+            lineIndex: l.lineIndex,
+            text: l.text,
+            highlightSpans: [],
+          })),
+          voteCount: isLocked ? (pl?.firstPlaceVotes ?? 0) : 0,
+          isWinner: isLocked && (pl?.finalPlacement ?? 999) === 1 && (pl?.rankingPoints ?? 0) > 0,
+          isOwnSubmission: isOwn,
+          constraintResults: [],
+          ...(isLocked && pl
+            ? {
+                rankingPoints: pl.rankingPoints,
+                firstPlaceVotes: pl.firstPlaceVotes,
+                averageRank: pl.averageRank,
+                finalPlacement: pl.finalPlacement,
+              }
+            : {}),
+        } satisfies SubmissionDTO;
+      });
+    } else if (room.status === "VOTING" || room.status === "REVEAL") {
+      const isReveal = room.status === "REVEAL";
+      submissions = room.submissions.map((sub) => {
+        const participant = room.participants.find((p) => p.id === sub.participantId);
+        const isOwn = sub.participantId === currentParticipantId;
+        const pl = placementById.get(sub.id);
+        return {
+          id: sub.id,
           participantId: isReveal ? sub.participantId : "",
           nickname: isReveal ? (participant?.nickname ?? null) : null,
           rawText: sub.rawText,
-          lines: sub.lines.map((text, idx) => ({
-            id: `${sub.submissionId}_line_${idx}`,
-            lineIndex: idx,
-            text,
+          lines: sub.lines.map((l) => ({
+            id: l.id,
+            lineIndex: l.lineIndex,
+            text: l.text,
             highlightSpans: [],
           })),
-          voteCount: isReveal ? voteCount : 0,
-          isWinner: isReveal && maxVotes > 0 && voteCount === maxVotes,
+          voteCount: isReveal ? (pl?.firstPlaceVotes ?? 0) : 0,
+          isWinner: isReveal && (pl?.finalPlacement ?? 999) === 1 && (pl?.rankingPoints ?? 0) > 0,
           isOwnSubmission: isOwn,
           constraintResults: [],
+          ...(isReveal && pl
+            ? {
+                rankingPoints: pl.rankingPoints,
+                firstPlaceVotes: pl.firstPlaceVotes,
+                averageRank: pl.averageRank,
+                finalPlacement: pl.finalPlacement,
+              }
+            : {}),
         } satisfies SubmissionDTO;
       });
     }
 
     const response: RoomStateDTO = {
-      ...room,
-      currentParticipantId: currentParticipant?.id ?? null,
+      id: room.id,
+      roomCode: room.roomCode,
+      name: room.name,
+      status: room.status as RoomStatus,
+      privacy: room.privacy as RoomPrivacy,
+      votingMode: room.votingMode as VotingMode,
+      roomMode: room.roomMode as RoomMode,
+      deadline: room.deadline?.toISOString() ?? null,
+      locksAt: room.locksAt?.toISOString() ?? null,
+      isLocked,
+      beat,
+      challenge,
+      participants,
+      submittedCount: room.submissions.length,
+      totalCount: room.participants.length,
       isHost: currentParticipant?.isHost ?? false,
+      currentParticipantId,
       currentParticipantHasSubmitted,
       currentParticipantHasVoted,
-      currentParticipantVotedForId,
+      currentParticipantRankings,
       votedCount,
-      isLocked,
       submissions,
     };
 

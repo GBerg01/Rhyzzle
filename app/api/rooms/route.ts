@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { CreateRoomRequest, CreateRoomResponse, RoomStateDTO, RoomMode } from "@/lib/types";
+import type { CreateRoomRequest, CreateRoomResponse, BeatDTO, ChallengeDTO } from "@/lib/types";
 import { generateRoomCode, generateSessionToken, getDefaultLocksAt } from "@/lib/utils";
-import { saveRoom, roomExists, saveSubmission } from "@/lib/room-store";
 import { SAMPLE_BEATS, SAMPLE_CHALLENGES } from "@/lib/sample-data";
 import { DAILY_BEAT, getDailyVariant, variantToChallengeDTO } from "@/lib/daily-challenge";
 import type { DailyBarCount } from "@/lib/daily-challenge";
+import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 // POST /api/rooms — create a room and auto-join the creator as host.
 //
@@ -19,11 +20,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "hostNickname is required" }, { status: 400 });
     }
 
-    let beat: RoomStateDTO["beat"];
-    let challenge: RoomStateDTO["challenge"];
-    let initialStatus: RoomStateDTO["status"] = "LOBBY";
-    let roomMode: RoomMode = "GROUP_ROOM";
-    let locksAt: string | null = null;
+    let beat: BeatDTO;
+    let challenge: ChallengeDTO;
+    let initialStatus: "LOBBY" | "WRITING" = "LOBBY";
+    let roomMode: "CHALLENGE_LINK" | "GROUP_ROOM" = "GROUP_ROOM";
+    let locksAt: Date | null = null;
 
     if (body.source === "DAILY_CHALLENGE" || body.source === "CHALLENGE_LINK") {
       const barCount = (body.barCount ?? 6) as DailyBarCount;
@@ -47,14 +48,12 @@ export async function POST(req: NextRequest) {
       };
       challenge = challengeDTO;
 
-      // Challenge links: live all day, no LOBBY, lock at 9 PM
       if (body.source === "CHALLENGE_LINK") {
-        initialStatus = "WRITING"; // kept for backward compat with join API; lock state drives UI
+        initialStatus = "WRITING";
         roomMode = "CHALLENGE_LINK";
-        locksAt = getDefaultLocksAt();
+        locksAt = new Date(getDefaultLocksAt());
       }
     } else {
-      // Legacy custom room path
       if (!body.beatId || !body.challengeId) {
         return NextResponse.json(
           { error: "beatId and challengeId are required for custom rooms" },
@@ -106,76 +105,84 @@ export async function POST(req: NextRequest) {
       };
     }
 
-    // Generate unique room code
+    // Generate unique room code (check DB for collisions)
     let roomCode = generateRoomCode();
-    let attempts = 0;
-    while (roomExists(roomCode) && attempts < 10) {
-      roomCode = generateRoomCode();
-      attempts++;
-    }
-
-    const roomId = `room_${roomCode}`;
-    const hostParticipantId = `p_${roomCode}_host`;
-    const hostSessionToken = generateSessionToken();
-    const hostNickname = body.hostNickname.trim().slice(0, 20);
-
-    // For challenge links, the creator has already submitted — mark them immediately
-    const isChallengeLinkCreator = body.source === "CHALLENGE_LINK";
-
-    const hostParticipant = {
-      id: hostParticipantId,
-      nickname: hostNickname,
-      isHost: true,
-      joinedAt: new Date().toISOString(),
-      hasSubmitted: isChallengeLinkCreator,
-    };
-
-    const roomState: RoomStateDTO = {
-      id: roomId,
-      roomCode,
-      name: body.name ?? null,
-      status: initialStatus,
-      privacy: body.privacy ?? "PRIVATE",
-      votingMode: "ANONYMOUS",
-      roomMode,
-      deadline: body.deadline ?? null,
-      locksAt,                              // null for GROUP_ROOM; 9 PM timestamp for CHALLENGE_LINK
-      isLocked: false,                      // always false in stored state; GET recomputes from locksAt
-      beat,
-      challenge,
-      participants: [hostParticipant],
-      submittedCount: isChallengeLinkCreator ? 1 : 0,
-      totalCount: 1,
-      isHost: false,                        // always false in stored state; GET sets this per-requester
-      currentParticipantId: null,           // always null in stored state; GET sets this per-requester
-      currentParticipantHasSubmitted: false, // always false in stored state; GET sets this per-requester
-      currentParticipantHasVoted: false,    // always false in stored state; GET sets this per-requester
-      currentParticipantVotedForId: null,   // always null in stored state; GET sets this per-requester
-      votedCount: 0,                        // always 0 in stored state; GET computes this live
-    };
-
-    saveRoom(roomCode, roomState);
-
-    // For challenge links: immediately save the creator's bars as a submission
-    if (isChallengeLinkCreator && Array.isArray(body.submittedBars) && body.submittedBars.length > 0) {
-      const submittedLines = body.submittedBars.filter((l) => l.trim().length > 0);
-      saveSubmission({
-        submissionId: `sub_${roomCode}_${Date.now()}`,
-        participantId: hostParticipantId,
-        roomCode,
-        lines: submittedLines,
-        rawText: submittedLines.join("\n"),
-        submittedAt: new Date().toISOString(),
+    for (let i = 0; i < 10; i++) {
+      const existing = await prisma.room.findUnique({
+        where: { roomCode },
+        select: { id: true },
       });
+      if (!existing) break;
+      roomCode = generateRoomCode();
     }
+
+    const hostNickname = body.hostNickname.trim().slice(0, 20);
+    const hostSessionToken = generateSessionToken();
+    const isChallengeLinkCreator = body.source === "CHALLENGE_LINK";
+    const submittedBars =
+      isChallengeLinkCreator && Array.isArray(body.submittedBars)
+        ? body.submittedBars.filter((l) => l.trim().length > 0)
+        : [];
+
+    const { room, participant, guestUser } = await prisma.$transaction(async (tx) => {
+      const guest = await tx.guestUser.create({
+        data: { nickname: hostNickname, sessionId: hostSessionToken },
+      });
+
+      const newRoom = await tx.room.create({
+        data: {
+          roomCode,
+          name: body.name ?? null,
+          status: initialStatus,
+          roomMode,
+          privacy: body.privacy ?? "PRIVATE",
+          votingMode: "ANONYMOUS",
+          locksAt,
+          deadline: body.deadline ? new Date(body.deadline) : null,
+          beatSnapshot: beat as unknown as Prisma.InputJsonValue,
+          challengeSnapshot: challenge as unknown as Prisma.InputJsonValue,
+          guestHostId: guest.id,
+        },
+      });
+
+      const p = await tx.roomParticipant.create({
+        data: {
+          roomId: newRoom.id,
+          guestUserId: guest.id,
+          nickname: hostNickname,
+          isHost: true,
+        },
+      });
+
+      // For challenge links: immediately save the creator's bars
+      if (isChallengeLinkCreator && submittedBars.length > 0) {
+        await tx.submission.create({
+          data: {
+            roomId: newRoom.id,
+            participantId: p.id,
+            guestUserId: guest.id,
+            rawText: submittedBars.join("\n"),
+            lines: {
+              create: submittedBars.map((text, idx) => ({ lineIndex: idx, text })),
+            },
+          },
+        });
+      }
+
+      return { room: newRoom, participant: p, guestUser: guest };
+    });
 
     console.log(
       `[POST /api/rooms] Created ${roomCode} — host: ${hostNickname} source: ${body.source ?? "custom"} status: ${initialStatus}`
     );
 
-    const response: CreateRoomResponse = { roomCode, roomId, hostParticipantId };
-    const nextResponse = NextResponse.json(response, { status: 201 });
+    const response: CreateRoomResponse = {
+      roomCode,
+      roomId: room.id,
+      hostParticipantId: participant.id,
+    };
 
+    const nextResponse = NextResponse.json(response, { status: 201 });
     const cookieOpts = {
       httpOnly: true,
       sameSite: "lax" as const,
@@ -183,11 +190,43 @@ export async function POST(req: NextRequest) {
       path: "/",
     };
     nextResponse.cookies.set("rhyzzle_session", hostSessionToken, cookieOpts);
-    nextResponse.cookies.set("rhyzzle_participant", hostParticipantId, cookieOpts);
+    nextResponse.cookies.set("rhyzzle_participant", participant.id, cookieOpts);
 
     return nextResponse;
   } catch (err) {
-    console.error("[POST /api/rooms]", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    console.error("[POST /api/rooms] Error:", err);
+
+    if (err instanceof Error) {
+      const code = (err as { code?: string }).code;
+
+      // Prisma unique constraint (extremely rare: 10 room-code retries exhausted)
+      if (code === "P2002") {
+        return NextResponse.json(
+          { error: "Room code collision — please try again" },
+          { status: 500 }
+        );
+      }
+
+      // Prisma DB connection failure (P1001 = unreachable, P1017 = closed)
+      if (code === "P1001" || code === "P1017") {
+        return NextResponse.json(
+          { error: "Database connection failed — check the DB is running" },
+          { status: 503 }
+        );
+      }
+
+      // In development, surface the real message to make debugging faster
+      if (process.env.NODE_ENV === "development") {
+        return NextResponse.json(
+          { error: `Server error: ${err.message}` },
+          { status: 500 }
+        );
+      }
+    }
+
+    return NextResponse.json(
+      { error: "Failed to create challenge room — please try again" },
+      { status: 500 }
+    );
   }
 }

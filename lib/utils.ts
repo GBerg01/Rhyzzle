@@ -112,6 +112,98 @@ export function getRoomUrl(roomCode: string, baseUrl?: string): string {
   return `${base}/room/${roomCode}`;
 }
 
+// ─── Clipboard ────────────────────────────────────────────────────────────
+
+// Safe clipboard helper — never throws. Returns true on success.
+// Guards against: SSR, undefined navigator.clipboard, permission denial.
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (!text) return false;
+  if (typeof navigator === "undefined" || !navigator.clipboard) return false;
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Ranked Voting — Borda Count ──────────────────────────────────────────────
+
+export interface PlacementResult {
+  submissionId: string;
+  rankingPoints: number;
+  firstPlaceVotes: number;
+  averageRank: number | null;
+  finalPlacement: number;
+}
+
+export function computePlacementResults(
+  submissions: { id: string }[],
+  votes: { submissionId: string; participantId: string; rankPosition: number }[],
+): PlacementResult[] {
+  const points = new Map<string, number>();
+  const fpVotes = new Map<string, number>();
+  const rankSums = new Map<string, number>();
+  const rankCounts = new Map<string, number>();
+
+  for (const s of submissions) {
+    points.set(s.id, 0);
+    fpVotes.set(s.id, 0);
+    rankSums.set(s.id, 0);
+    rankCounts.set(s.id, 0);
+  }
+
+  // Group votes by voter to determine N (how many each voter ranked)
+  const byVoter = new Map<string, { submissionId: string; rankPosition: number }[]>();
+  for (const v of votes) {
+    if (!byVoter.has(v.participantId)) byVoter.set(v.participantId, []);
+    byVoter.get(v.participantId)!.push({ submissionId: v.submissionId, rankPosition: v.rankPosition });
+  }
+
+  // Borda: voter ranked N submissions → rank k earns N - k + 1 points
+  for (const [, voterRankings] of byVoter) {
+    const N = voterRankings.length;
+    for (const r of voterRankings) {
+      points.set(r.submissionId, (points.get(r.submissionId) ?? 0) + (N - r.rankPosition + 1));
+      rankSums.set(r.submissionId, (rankSums.get(r.submissionId) ?? 0) + r.rankPosition);
+      rankCounts.set(r.submissionId, (rankCounts.get(r.submissionId) ?? 0) + 1);
+      if (r.rankPosition === 1) {
+        fpVotes.set(r.submissionId, (fpVotes.get(r.submissionId) ?? 0) + 1);
+      }
+    }
+  }
+
+  const sorted = [...submissions].sort((a, b) => {
+    const pa = points.get(a.id) ?? 0, pb = points.get(b.id) ?? 0;
+    if (pb !== pa) return pb - pa;
+    return (fpVotes.get(b.id) ?? 0) - (fpVotes.get(a.id) ?? 0);
+  });
+
+  const results: PlacementResult[] = [];
+  let placement = 1;
+  for (let i = 0; i < sorted.length; i++) {
+    if (i > 0) {
+      const curr = sorted[i], prev = sorted[i - 1];
+      if (
+        (points.get(curr.id) ?? 0) !== (points.get(prev.id) ?? 0) ||
+        (fpVotes.get(curr.id) ?? 0) !== (fpVotes.get(prev.id) ?? 0)
+      ) {
+        placement = i + 1;
+      }
+    }
+    const rc = rankCounts.get(sorted[i].id) ?? 0;
+    results.push({
+      submissionId: sorted[i].id,
+      rankingPoints: points.get(sorted[i].id) ?? 0,
+      firstPlaceVotes: fpVotes.get(sorted[i].id) ?? 0,
+      averageRank: rc > 0 ? (rankSums.get(sorted[i].id) ?? 0) / rc : null,
+      finalPlacement: placement,
+    });
+  }
+
+  return results;
+}
+
 // ─── Highlight Colors ──────────────────────────────────────────────────────
 
 import type { HighlightCategory } from "./types";

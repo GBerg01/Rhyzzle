@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRoom, updateRoom, getVotesForRoom } from "@/lib/room-store";
+import { prisma } from "@/lib/prisma";
 
 // POST /api/rooms/[roomCode]/reveal
 // Host-only. Transitions room from VOTING → REVEAL.
@@ -17,12 +17,19 @@ export async function POST(
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    const room = getRoom(upperCode);
+    const room = await prisma.room.findUnique({
+      where: { roomCode: upperCode },
+      include: {
+        participants: { where: { id: participantCookie } },
+        _count: { select: { votes: true } },
+      },
+    });
+
     if (!room) {
       return NextResponse.json({ error: "Room not found" }, { status: 404 });
     }
 
-    const participant = room.participants.find((p) => p.id === participantCookie);
+    const participant = room.participants[0] ?? null;
     if (!participant?.isHost) {
       return NextResponse.json({ error: "Only the host can reveal the winner" }, { status: 403 });
     }
@@ -34,13 +41,17 @@ export async function POST(
       );
     }
 
-    const votes = getVotesForRoom(upperCode);
-    if (votes.length === 0) {
+    if (room._count.votes === 0) {
       return NextResponse.json({ error: "No votes have been cast yet" }, { status: 400 });
     }
 
-    const updated = updateRoom(upperCode, { status: "REVEAL" });
-    return NextResponse.json({ status: updated?.status });
+    const updated = await prisma.room.update({
+      where: { id: room.id },
+      data: { status: "REVEAL" },
+      select: { status: true },
+    });
+
+    return NextResponse.json({ status: updated.status });
   } catch (err) {
     console.error("[POST /api/rooms/[roomCode]/reveal]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

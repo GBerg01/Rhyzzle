@@ -5,13 +5,12 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { BeatPlayer } from "@/components/beat-player";
 import { LyricPuzzleCanvas } from "@/components/lyric-puzzle-canvas";
-import type { RoomStateDTO } from "@/lib/types";
-import { getRoomUrl, cn } from "@/lib/utils";
+import { SubmissionPatternCard } from "@/components/submission-pattern-card";
+import type { RoomStateDTO, SubmissionDTO } from "@/lib/types";
+import { getRoomUrl, copyToClipboard, cn } from "@/lib/utils";
 
 const POLL_INTERVAL_MS = 4000;
 
-// Formats an ISO locksAt timestamp as a human-readable time in the user's local timezone.
-// e.g. "9 PM", "8:30 PM". Server sets locksAt in its TZ; client displays in browser TZ.
 function formatLockTime(locksAt: string): string {
   const d = new Date(locksAt);
   const h = d.getHours();
@@ -28,29 +27,26 @@ export default function RoomPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Session state — set either by the join flow or auto-detected from cookie on load
   const [participantId, setParticipantId] = useState<string | null>(null);
   const [hasJoined, setHasJoined] = useState(false);
 
-  // Join form state
   const [nickname, setNickname] = useState("");
   const [isJoining, setIsJoining] = useState(false);
 
-  // Writing state — one string per bar line
   const [barLines, setBarLines] = useState<string[]>([]);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
 
-  // Voting state
-  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
-  const [hasVoted, setHasVoted] = useState(false);
-  const [isVoting, setIsVoting] = useState(false);
+  // Ranked-choice voting state — rankedIds[0] = 1st pick, rankedIds[1] = 2nd pick, etc.
+  const [rankedIds, setRankedIds] = useState<string[]>([]);
+  const [hasRanked, setHasRanked] = useState(false);
+  const [isSubmittingRanking, setIsSubmittingRanking] = useState(false);
   const [isStartingVoting, setIsStartingVoting] = useState(false);
   const [isRevealing, setIsRevealing] = useState(false);
 
-  // Share UI state
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   const fetchRoom = useCallback(async () => {
     try {
@@ -76,8 +72,6 @@ export default function RoomPage() {
     return () => clearInterval(interval);
   }, [fetchRoom]);
 
-  // Auto-detect already-joined state from the server's cookie check
-  // This fires when the host lands after creating, or when any participant refreshes
   useEffect(() => {
     if (roomState?.currentParticipantId && !hasJoined) {
       setHasJoined(true);
@@ -85,28 +79,31 @@ export default function RoomPage() {
     }
   }, [roomState?.currentParticipantId, hasJoined]);
 
-  // Hydrate submitted state from server — prevents submitted state resetting on refresh
   useEffect(() => {
     if (roomState?.currentParticipantHasSubmitted && !hasSubmitted) {
       setHasSubmitted(true);
     }
   }, [roomState?.currentParticipantHasSubmitted, hasSubmitted]);
 
-  // Hydrate voted state from server — prevents voted state resetting on refresh
   useEffect(() => {
-    if (roomState?.currentParticipantHasVoted && !hasVoted) {
-      setHasVoted(true);
+    if (roomState?.currentParticipantHasVoted && !hasRanked) {
+      setHasRanked(true);
     }
-  }, [roomState?.currentParticipantHasVoted, hasVoted]);
+  }, [roomState?.currentParticipantHasVoted, hasRanked]);
 
-  // Hydrate which submission the current participant voted for (CHALLENGE_LINK vote-change support)
+  // Hydrate ranked IDs from server on load/refresh (allows CHALLENGE_LINK re-ranking)
   useEffect(() => {
-    if (roomState?.currentParticipantVotedForId && !selectedSubmissionId) {
-      setSelectedSubmissionId(roomState.currentParticipantVotedForId);
+    const serverRankings = roomState?.currentParticipantRankings ?? [];
+    if (serverRankings.length > 0 && rankedIds.length === 0) {
+      setRankedIds(
+        [...serverRankings]
+          .sort((a, b) => a.rankPosition - b.rankPosition)
+          .map((r) => r.submissionId),
+      );
     }
-  }, [roomState?.currentParticipantVotedForId, selectedSubmissionId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomState?.currentParticipantRankings?.length]);
 
-  // Initialize barLines array when room enters WRITING state and user has joined
   useEffect(() => {
     if (roomState?.status === "WRITING" && hasJoined && barLines.length === 0 && roomState.challenge) {
       setBarLines(Array(roomState.challenge.barCount).fill(""));
@@ -216,46 +213,58 @@ export default function RoomPage() {
     }
   }
 
-  async function handleVote() {
-    if (!selectedSubmissionId) return;
-    setIsVoting(true);
+  function handleTapSubmission(submissionId: string) {
+    setRankedIds((prev) => {
+      const idx = prev.indexOf(submissionId);
+      if (idx !== -1) return prev.filter((id) => id !== submissionId);
+      return [...prev, submissionId];
+    });
+  }
+
+  async function handleSubmitRankings() {
+    if (rankedIds.length === 0) return;
+    setIsSubmittingRanking(true);
     try {
+      const rankings = rankedIds.map((id, i) => ({ submissionId: id, rankPosition: i + 1 }));
       const res = await fetch(`/api/rooms/${roomCode}/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ submissionId: selectedSubmissionId }),
+        body: JSON.stringify({ rankings }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? "Failed to vote");
+        throw new Error(data.error ?? "Failed to submit rankings");
       }
-      setHasVoted(true);
+      setHasRanked(true);
       await fetchRoom();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to cast vote");
+      setError(err instanceof Error ? err.message : "Failed to submit rankings");
     } finally {
-      setIsVoting(false);
+      setIsSubmittingRanking(false);
     }
   }
 
   async function handleShare() {
     const url = getRoomUrl(roomCode);
-    const challengerName = participants.find((p) => p.isHost)?.nickname ?? "Someone";
+    const challengerName = roomState?.participants.find((p) => p.isHost)?.nickname ?? "Someone";
     const shareText = `${challengerName} finished today's Rhyzzle. Think you can beat them? ${url}`;
+    setCopyFailed(false);
     try {
-      if (navigator.share) {
+      if (typeof navigator !== "undefined" && navigator.share) {
         await navigator.share({ title: "Rhyzzle challenge", text: shareText, url });
-      } else {
-        await navigator.clipboard.writeText(shareText);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2500);
+        return;
       }
     } catch {
-      // User dismissed share sheet or clipboard unavailable
+      // Share sheet dismissed — fall through to clipboard
+    }
+    const ok = await copyToClipboard(shareText);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } else {
+      setCopyFailed(true);
     }
   }
-
-  // ── Loading / Error states ─────────────────────────────────────────────────
 
   if (isLoading) {
     return (
@@ -287,14 +296,12 @@ export default function RoomPage() {
 
   const { status, beat, challenge, participants, submittedCount, totalCount, isHost, roomMode } = roomState;
 
-  // Derive current participant's nickname from the participant list
   const myNickname = participantId
     ? participants.find((p) => p.id === participantId)?.nickname ?? null
     : null;
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-50">
-      {/* Nav */}
       <nav className="flex items-center justify-between px-5 py-4 border-b border-zinc-900">
         <Link href="/" className="text-zinc-400 hover:text-white transition-colors text-sm">
           Rhyzzle
@@ -318,15 +325,16 @@ export default function RoomPage() {
 
       <div className="max-w-sm mx-auto px-5 py-6">
 
-        {/* ── CHALLENGE_LINK: locksAt-driven UI (no state machine) ────────── */}
         {roomMode === "CHALLENGE_LINK" && (
           <ChallengeLinkView
             roomState={roomState}
             hasJoined={hasJoined}
             hasSubmitted={hasSubmitted}
-            hasVoted={hasVoted}
-            selectedSubmissionId={selectedSubmissionId}
-            setSelectedSubmissionId={setSelectedSubmissionId}
+            hasRanked={hasRanked}
+            rankedIds={rankedIds}
+            onTapSubmission={handleTapSubmission}
+            onSubmitRankings={handleSubmitRankings}
+            isSubmittingRanking={isSubmittingRanking}
             nickname={nickname}
             setNickname={setNickname}
             barLines={barLines}
@@ -335,18 +343,15 @@ export default function RoomPage() {
             isJoining={isJoining}
             handleSubmit={handleSubmit}
             isSubmitting={isSubmitting}
-            handleVote={handleVote}
-            isVoting={isVoting}
             handleShare={handleShare}
             copied={copied}
+            copyFailed={copyFailed}
             roomCode={roomCode}
           />
         )}
 
-        {/* ── GROUP_ROOM: host-led state machine ──────────────────────────── */}
         {roomMode !== "CHALLENGE_LINK" && (
           <>
-            {/* LOBBY: Guest Join Form (not yet in room) */}
             {status === "LOBBY" && !hasJoined && (
               <GuestJoinView
                 nickname={nickname}
@@ -359,7 +364,6 @@ export default function RoomPage() {
               />
             )}
 
-            {/* LOBBY: In-room lobby (host + joined guests) */}
             {status === "LOBBY" && hasJoined && (
               <LobbyView
                 roomCode={roomCode}
@@ -370,17 +374,16 @@ export default function RoomPage() {
                 challenge={challenge}
                 onShare={handleShare}
                 copied={copied}
+                copyFailed={copyFailed}
                 onStart={handleStart}
                 isStarting={isStarting}
               />
             )}
 
-            {/* WRITING: not joined — late arrival blocked */}
             {status === "WRITING" && !hasJoined && (
               <LateArrivalView status={status} />
             )}
 
-            {/* WRITING: in the room */}
             {status === "WRITING" && hasJoined && (
               <WritingView
                 beat={beat}
@@ -400,20 +403,19 @@ export default function RoomPage() {
               />
             )}
 
-            {/* VOTING: not joined */}
             {status === "VOTING" && !hasJoined && (
               <LateArrivalView status={status} />
             )}
 
-            {/* VOTING: in the room */}
             {status === "VOTING" && hasJoined && (
               <VotingView
+                challenge={challenge}
                 submissions={roomState.submissions ?? []}
-                selectedId={selectedSubmissionId}
-                setSelectedId={setSelectedSubmissionId}
-                hasVoted={hasVoted}
-                isVoting={isVoting}
-                onVote={handleVote}
+                rankedIds={rankedIds}
+                onTapSubmission={handleTapSubmission}
+                hasRanked={hasRanked}
+                isSubmittingRanking={isSubmittingRanking}
+                onSubmitRankings={handleSubmitRankings}
                 isHost={isHost}
                 onReveal={handleReveal}
                 isRevealing={isRevealing}
@@ -422,16 +424,16 @@ export default function RoomPage() {
               />
             )}
 
-            {/* REVEAL: shown to everyone — read-only */}
             {status === "REVEAL" && (
               <RevealView
+                challenge={challenge}
                 submissions={roomState.submissions ?? []}
                 onShare={handleShare}
                 copied={copied}
+                copyFailed={copyFailed}
               />
             )}
 
-            {/* CLOSED */}
             {status === "CLOSED" && (
               <div className="text-center py-16">
                 <div className="text-4xl mb-4">🏁</div>
@@ -473,15 +475,8 @@ function RoomStatusBadge({ status }: { status: string }) {
   );
 }
 
-// Shown to guests who haven't joined yet (LOBBY state)
 function GuestJoinView({
-  nickname,
-  setNickname,
-  onJoin,
-  isJoining,
-  participants,
-  beatTitle,
-  barCount,
+  nickname, setNickname, onJoin, isJoining, participants, beatTitle, barCount,
 }: {
   nickname: string;
   setNickname: (v: string) => void;
@@ -497,17 +492,13 @@ function GuestJoinView({
       <div className="text-center pt-4">
         {hostName ? (
           <>
-            <p className="text-amber-400 text-xs font-black uppercase tracking-widest mb-2">
-              Group Room
-            </p>
+            <p className="text-amber-400 text-xs font-black uppercase tracking-widest mb-2">Group Room</p>
             <h1 className="font-black text-2xl mb-1">{hostName}&apos;s room</h1>
           </>
         ) : (
           <h1 className="font-black text-2xl mb-2">Join the Room</h1>
         )}
-        <p className="text-zinc-500 text-sm">
-          {beatTitle} · {barCount} bars
-        </p>
+        <p className="text-zinc-500 text-sm">{beatTitle} · {barCount} bars</p>
       </div>
 
       <div className="space-y-3">
@@ -548,19 +539,9 @@ function GuestJoinView({
   );
 }
 
-
-// Shown to everyone who is in the room (host + joined guests) during LOBBY
 function LobbyView({
-  roomCode,
-  participants,
-  isHost,
-  myNickname,
-  beat,
-  challenge,
-  onShare,
-  copied,
-  onStart,
-  isStarting,
+  roomCode, participants, isHost, myNickname, beat, challenge,
+  onShare, copied, copyFailed, onStart, isStarting,
 }: {
   roomCode: string;
   participants: RoomStateDTO["participants"];
@@ -570,12 +551,12 @@ function LobbyView({
   challenge: RoomStateDTO["challenge"];
   onShare: () => void;
   copied: boolean;
+  copyFailed: boolean;
   onStart: () => void;
   isStarting: boolean;
 }) {
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="pt-2">
         {isHost ? (
           <>
@@ -583,9 +564,7 @@ function LobbyView({
               You&apos;re the host 👑
             </p>
             <h1 className="font-black text-2xl">Waiting for the crew</h1>
-            <p className="text-zinc-500 text-sm mt-1">
-              Share the link below. Start when everyone&apos;s in.
-            </p>
+            <p className="text-zinc-500 text-sm mt-1">Share the link below. Start when everyone&apos;s in.</p>
           </>
         ) : (
           <>
@@ -593,14 +572,11 @@ function LobbyView({
               {myNickname ? `You're in as ${myNickname}` : "You're in"}
             </p>
             <h1 className="font-black text-2xl">Waiting to start</h1>
-            <p className="text-zinc-500 text-sm mt-1">
-              The host will start the game when everyone&apos;s here.
-            </p>
+            <p className="text-zinc-500 text-sm mt-1">The host will start the game when everyone&apos;s here.</p>
           </>
         )}
       </div>
 
-      {/* Share link — prominent for host, visible for guests too */}
       <button
         onClick={onShare}
         className={cn(
@@ -610,12 +586,19 @@ function LobbyView({
             : "bg-zinc-900 border border-zinc-800 text-white hover:border-zinc-700"
         )}
       >
-        {copied
-          ? "✓ Copied!"
-          : `🔗 Send to Group Chat`}
+        {copied ? "✓ Copied link!" : "🔗 Send to Group Chat"}
       </button>
+      {copyFailed && (
+        <p className="text-xs text-zinc-500 text-center -mt-2">
+          Couldn&apos;t auto-copy. Press and hold the link below to copy.
+        </p>
+      )}
+      {copyFailed && (
+        <div className="bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 select-all cursor-text">
+          <p className="text-zinc-200 text-xs font-mono break-all">{getRoomUrl(roomCode)}</p>
+        </div>
+      )}
 
-      {/* Beat + challenge summary */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
         <p className="text-xs text-zinc-500 uppercase tracking-widest mb-3">Tonight&apos;s game</p>
         <div className="space-y-2">
@@ -635,7 +618,6 @@ function LobbyView({
         </div>
       </div>
 
-      {/* Participant list */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
         <p className="text-xs text-zinc-500 uppercase tracking-widest mb-3">
           Players ({participants.length})
@@ -646,17 +628,8 @@ function LobbyView({
               <div className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-sm font-bold text-zinc-300">
                 {p.nickname.charAt(0).toUpperCase()}
               </div>
-              <span className="font-semibold text-sm flex-1">
-                {p.nickname}
-              </span>
-              <div className="flex items-center gap-1.5">
-                {p.isHost && (
-                  <span className="text-xs text-amber-400 font-semibold">host</span>
-                )}
-                {p.id === participants.find(x => x.id === p.id)?.id && !p.isHost && (
-                  <span className="w-2 h-2 rounded-full bg-green-400" title="Online" />
-                )}
-              </div>
+              <span className="font-semibold text-sm flex-1">{p.nickname}</span>
+              {p.isHost && <span className="text-xs text-amber-400 font-semibold">host</span>}
             </div>
           ))}
         </div>
@@ -676,20 +649,8 @@ function LobbyView({
 }
 
 function WritingView({
-  beat,
-  challenge,
-  barLines,
-  onLineChange,
-  hasSubmitted,
-  isSubmitting,
-  onSubmit,
-  submittedCount,
-  totalCount,
-  isHost,
-  roomMode,
-  roomCode,
-  onStartVoting,
-  isStartingVoting,
+  beat, challenge, barLines, onLineChange, hasSubmitted, isSubmitting, onSubmit,
+  submittedCount, totalCount, isHost, roomMode, roomCode, onStartVoting, isStartingVoting,
 }: {
   beat: RoomStateDTO["beat"];
   challenge: RoomStateDTO["challenge"];
@@ -709,40 +670,37 @@ function WritingView({
   const { barCount } = challenge;
   const filledCount = barLines.filter((l) => l.trim().length > 0).length;
   const isValid = barLines.length === barCount && barLines.every((l) => l.trim().length > 0);
-
-  // Who can trigger voting depends on the room mode:
-  // CHALLENGE_LINK: any submitted participant (once ≥ 2 submissions exist)
-  // GROUP_ROOM: host only
   const isChallenge = roomMode === "CHALLENGE_LINK";
   const canStartVoting = isChallenge
     ? hasSubmitted && submittedCount >= 2
     : isHost && submittedCount >= 2;
 
   const [shareCopied, setShareCopied] = useState(false);
+  const [shareCopyFailed, setShareCopyFailed] = useState(false);
 
   async function handleShareChallenge() {
     const url = getRoomUrl(roomCode);
-    const text = `Think you can beat me? Write to the same beat. ${url}`;
-    try {
-      if (navigator.share) {
+    const text = `Think you can beat me? Write to the same beat and prompt. ${url}`;
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
         await navigator.share({ title: "Rhyzzle challenge", text, url });
-      } else {
-        await navigator.clipboard.writeText(text);
-        setShareCopied(true);
-        setTimeout(() => setShareCopied(false), 2500);
-      }
-    } catch {
-      // dismissed or unavailable
+      } catch { /* dismissed */ }
+      return;
+    }
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setShareCopied(true);
+      setShareCopyFailed(false);
+      setTimeout(() => setShareCopied(false), 2500);
+    } else {
+      setShareCopyFailed(true);
     }
   }
 
-  // ── Waiting / submitted state ────────────────────────────────────────────
   if (hasSubmitted) {
     const pct = totalCount > 0 ? (submittedCount / totalCount) * 100 : 0;
-
     return (
       <div className="space-y-4">
-        {/* Status card */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
           <div className="flex items-center gap-3 mb-4">
             <div className="text-2xl">🔥</div>
@@ -752,7 +710,6 @@ function WritingView({
             </div>
           </div>
 
-          {/* Submission progress bar */}
           <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-4">
             <div
               className="h-full bg-violet-500 rounded-full transition-all duration-500"
@@ -764,8 +721,8 @@ function WritingView({
             <>
               <p className="text-xs text-green-400 font-semibold mb-3">
                 {submittedCount >= totalCount
-                  ? "Everyone's in — ready to vote!"
-                  : `${submittedCount} submissions in. Vote who cooked.`}
+                  ? "Everyone's in — ready to rank!"
+                  : `${submittedCount} submissions in. Rank who cooked.`}
               </p>
               <button
                 onClick={onStartVoting}
@@ -776,34 +733,22 @@ function WritingView({
               </button>
             </>
           ) : isChallenge ? (
-            // Challenge link: not enough submissions yet — nudge to share
-            <p className="text-xs text-zinc-500">
-              Voting unlocks after 2 people submit. Share the link below.
-            </p>
+            <p className="text-xs text-zinc-500">Voting unlocks after 2 people submit. Share the link below.</p>
           ) : isHost ? (
-            <p className="text-xs text-zinc-600">
-              Need at least 2 submissions to start voting.
-            </p>
+            <p className="text-xs text-zinc-600">Need at least 2 submissions to start voting.</p>
           ) : (
-            <p className="text-xs text-zinc-600">
-              Host will start voting when ready.
-            </p>
+            <p className="text-xs text-zinc-600">Host will start voting when ready.</p>
           )}
         </div>
 
-        {/* Share card — always shown for challenge links; shown for group room host in lobby */}
         {isChallenge && (
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-            <p className="text-xs text-zinc-500 font-black uppercase tracking-widest mb-1">
-              Send to Group Chat
-            </p>
+            <p className="text-xs text-zinc-500 font-black uppercase tracking-widest mb-1">Send to Group Chat</p>
             <p className="text-zinc-400 text-xs leading-relaxed mb-3">
-              Friends write to the same beat and prompt. Then everyone votes who cooked.
+              Friends write to the same beat and prompt. Then everyone ranks who cooked.
             </p>
             <div className="bg-zinc-800 rounded-xl px-3 py-2.5 mb-3">
-              <p className="text-zinc-300 text-xs font-mono break-all">
-                {getRoomUrl(roomCode)}
-              </p>
+              <p className="text-zinc-300 text-xs font-mono break-all">{getRoomUrl(roomCode)}</p>
             </div>
             <button
               onClick={handleShareChallenge}
@@ -811,6 +756,11 @@ function WritingView({
             >
               {shareCopied ? "✓ Link copied!" : "🔗 Send to Group Chat"}
             </button>
+            {shareCopyFailed && (
+              <p className="text-xs text-zinc-400 text-center mt-2">
+                Couldn&apos;t copy — press and hold the link above to copy manually.
+              </p>
+            )}
           </div>
         )}
 
@@ -819,27 +769,19 @@ function WritingView({
     );
   }
 
-  // ── Writing state ────────────────────────────────────────────────────────
   return (
     <>
       <div className="space-y-4 pb-36">
-        {/* Phase header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-            <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
-              Writing Phase
-            </span>
+            <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">Writing Phase</span>
           </div>
-          <span className="text-xs text-zinc-600 font-mono">
-            {submittedCount} / {totalCount} submitted
-          </span>
+          <span className="text-xs text-zinc-600 font-mono">{submittedCount} / {totalCount} submitted</span>
         </div>
 
-        {/* Beat player */}
         <BeatPlayer beat={beat} />
 
-        {/* Puzzle canvas — scheme pills, required words, per-line rule chips + inputs */}
         {barLines.length === barCount ? (
           <LyricPuzzleCanvas
             challenge={challenge}
@@ -854,14 +796,10 @@ function WritingView({
         )}
       </div>
 
-      {/* Fixed sticky submit button */}
       <div className="fixed bottom-0 inset-x-0 z-50 pointer-events-none">
         <div
           className="max-w-sm mx-auto px-5 pb-7 pt-6 pointer-events-auto"
-          style={{
-            background:
-              "linear-gradient(to top, rgb(9,9,11) 60%, rgba(9,9,11,0.85) 85%, transparent 100%)",
-          }}
+          style={{ background: "linear-gradient(to top, rgb(9,9,11) 60%, rgba(9,9,11,0.85) 85%, transparent 100%)" }}
         >
           {!isValid && filledCount > 0 && (
             <p className="text-xs text-amber-400 text-center mb-2">
@@ -891,59 +829,50 @@ function WritingView({
 }
 
 function VotingView({
-  submissions,
-  selectedId,
-  setSelectedId,
-  hasVoted,
-  isVoting,
-  onVote,
-  isHost,
-  onReveal,
-  isRevealing,
-  votedCount,
-  totalCount,
+  challenge, submissions, rankedIds, onTapSubmission,
+  hasRanked, isSubmittingRanking, onSubmitRankings,
+  isHost, onReveal, isRevealing, votedCount, totalCount,
 }: {
+  challenge: RoomStateDTO["challenge"];
   submissions: NonNullable<RoomStateDTO["submissions"]>;
-  selectedId: string | null;
-  setSelectedId: (id: string) => void;
-  hasVoted: boolean;
-  isVoting: boolean;
-  onVote: () => void;
+  rankedIds: string[];
+  onTapSubmission: (id: string) => void;
+  hasRanked: boolean;
+  isSubmittingRanking: boolean;
+  onSubmitRankings: () => void;
   isHost: boolean;
   onReveal: () => void;
   isRevealing: boolean;
   votedCount: number;
   totalCount: number;
 }) {
-  const ownSubmission = submissions.find((s) => s.isOwnSubmission);
   const canReveal = isHost && votedCount >= 1;
+  const votableCount = submissions.filter((s) => !s.isOwnSubmission).length;
 
-  // Host controls — always visible to host at the bottom
   const hostControls = isHost ? (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
       <p className="text-xs text-zinc-500 uppercase tracking-widest mb-3">Host controls</p>
       <p className="text-xs text-zinc-400 mb-3">
-        {votedCount} / {totalCount} voted
-        {votedCount >= totalCount ? " — everyone has voted!" : ""}
+        {votedCount} / {totalCount} ranked{votedCount >= totalCount ? " — everyone has voted!" : ""}
       </p>
       <button
         onClick={onReveal}
         disabled={!canReveal || isRevealing}
         className="w-full bg-amber-400 text-zinc-950 font-black text-base py-3.5 rounded-2xl hover:bg-amber-300 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        {isRevealing ? "Revealing..." : canReveal ? "Reveal Winner 👑" : "Waiting for votes..."}
+        {isRevealing ? "Revealing..." : canReveal ? "Reveal Results 👑" : "Waiting for votes..."}
       </button>
     </div>
   ) : null;
 
-  if (hasVoted) {
+  if (hasRanked) {
     return (
       <div className="space-y-4">
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 text-center">
           <div className="text-4xl mb-3">✓</div>
-          <p className="font-black text-xl mb-1">Vote cast!</p>
+          <p className="font-black text-xl mb-1">Rankings submitted!</p>
           <p className="text-zinc-500 text-sm">
-            {votedCount} / {totalCount} voted — waiting for host to reveal...
+            {votedCount} / {totalCount} ranked — waiting for host to reveal...
           </p>
         </div>
         {hostControls}
@@ -953,65 +882,62 @@ function VotingView({
 
   return (
     <div className="space-y-4 pb-4">
-      {/* Header */}
       <div className="pt-1">
         <div className="flex items-center gap-2 mb-1">
           <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-          <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
-            Voting Phase
-          </span>
+          <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">Voting Phase</span>
         </div>
-        <h2 className="font-black text-2xl">Who cooked?</h2>
+        <h2 className="font-black text-2xl">Rank who cooked</h2>
         <p className="text-zinc-500 text-sm mt-1">
-          Tap a submission to select, then vote.
-          {ownSubmission && " You can't vote for yourself."}
+          Tap submissions in order — best first. Tap again to remove.
         </p>
       </div>
 
-      {/* Submission cards */}
+      {/* Rank progress indicator */}
+      {rankedIds.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs text-zinc-500 font-semibold">Your ranking:</span>
+          {rankedIds.map((id, i) => {
+            const sub = submissions.find((s) => s.id === id);
+            const label = sub
+              ? submissions.filter(s => !s.isOwnSubmission).findIndex(s => s.id === id)
+              : -1;
+            const letter = label >= 0 ? String.fromCharCode(65 + label) : "?";
+            return (
+              <span
+                key={id}
+                className="text-xs font-black bg-violet-500/20 text-violet-300 border border-violet-500/30 px-2 py-0.5 rounded-full"
+              >
+                #{i + 1} {letter}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
       <div className="space-y-3">
         {submissions.map((sub, i) => {
           const isOwn = sub.isOwnSubmission ?? false;
-          const isSelected = selectedId === sub.id;
+          const rankIdx = rankedIds.indexOf(sub.id);
+          const rankBadge = rankIdx !== -1 ? rankIdx + 1 : null;
+          const label = isOwn ? "Your submission" : `Submission ${String.fromCharCode(65 + i)}`;
           return (
-            <div key={sub.id} className="relative">
-              <button
-                onClick={() => !isOwn && setSelectedId(sub.id)}
-                disabled={isOwn}
-                className={cn(
-                  "w-full text-left p-4 rounded-2xl border-2 transition-all",
-                  isOwn
-                    ? "border-zinc-800 bg-zinc-900/50 opacity-60 cursor-not-allowed"
-                    : isSelected
-                    ? "border-amber-400 bg-amber-400/10 shadow-lg shadow-amber-900/20"
-                    : "border-zinc-800 bg-zinc-900 hover:border-zinc-600 active:scale-[0.99]"
-                )}
-              >
-                <div className="flex items-center justify-between mb-2.5">
-                  <span className="text-xs font-black uppercase tracking-widest text-zinc-500">
-                    {isOwn ? "Your submission" : `Submission ${String.fromCharCode(65 + i)}`}
-                  </span>
-                  {isSelected && !isOwn && (
-                    <span className="text-xs text-amber-400 font-black">✓ Selected</span>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  {sub.lines.map((line) => (
-                    <p key={line.id} className="text-sm text-zinc-200 leading-relaxed font-normal">
-                      {line.text}
-                    </p>
-                  ))}
-                </div>
-              </button>
-            </div>
+            <SubmissionPatternCard
+              key={sub.id}
+              challenge={challenge}
+              lines={sub.lines}
+              label={label}
+              rankBadge={rankBadge}
+              isOwn={isOwn}
+              onClick={isOwn ? undefined : () => onTapSubmission(sub.id)}
+            />
           );
         })}
       </div>
 
-      {/* Vote button */}
       <button
-        onClick={onVote}
-        disabled={!selectedId || isVoting}
+        onClick={onSubmitRankings}
+        disabled={rankedIds.length === 0 || isSubmittingRanking || votableCount === 0}
         className={cn(
           "w-full font-black text-lg py-4 rounded-2xl transition-all active:scale-95",
           "bg-gradient-to-r from-blue-600 to-blue-500 text-white",
@@ -1019,8 +945,16 @@ function VotingView({
           "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
         )}
       >
-        {isVoting ? "Voting..." : "Cast Vote"}
+        {isSubmittingRanking
+          ? "Submitting..."
+          : rankedIds.length === 0
+          ? "Tap to rank submissions"
+          : `Submit Rankings (${rankedIds.length} ranked)`}
       </button>
+
+      <p className="text-xs text-zinc-600 text-center">
+        You don&apos;t have to rank all submissions — rank as many as you want.
+      </p>
 
       {hostControls}
     </div>
@@ -1028,94 +962,62 @@ function VotingView({
 }
 
 function RevealView({
-  submissions, onShare, copied,
+  challenge, submissions, onShare, copied, copyFailed,
 }: {
+  challenge: RoomStateDTO["challenge"];
   submissions: NonNullable<RoomStateDTO["submissions"]>;
   onShare: () => void;
   copied: boolean;
+  copyFailed: boolean;
 }) {
-  const sorted = [...submissions].sort((a, b) => b.voteCount - a.voteCount);
-  const maxVotes = sorted[0]?.voteCount ?? 0;
-  const winners = sorted.filter((s) => s.voteCount === maxVotes && maxVotes > 0);
+  const sorted = [...submissions].sort((a, b) => {
+    const pa = a.finalPlacement ?? 999, pb = b.finalPlacement ?? 999;
+    if (pa !== pb) return pa - pb;
+    return (b.rankingPoints ?? 0) - (a.rankingPoints ?? 0);
+  });
+
+  const hasAnyVotes = submissions.some((s) => (s.rankingPoints ?? 0) > 0);
+  const winners = sorted.filter((s) => s.isWinner);
   const isTie = winners.length > 1;
-  const runner_ups = sorted.filter((s) => !winners.includes(s));
 
   return (
     <div className="space-y-5 pb-6">
-      {/* Header */}
       <div className="text-center pt-2">
-        <div className="text-5xl mb-3">{isTie ? "🤝" : "👑"}</div>
-        {isTie ? (
+        <div className="text-5xl mb-3">{!hasAnyVotes ? "📜" : isTie ? "🤝" : "👑"}</div>
+        {!hasAnyVotes ? (
+          <>
+            <h2 className="font-black text-2xl">No rankings this round</h2>
+            <p className="text-zinc-400 text-sm mt-1">All submissions below.</p>
+          </>
+        ) : isTie ? (
           <>
             <h2 className="font-black text-2xl">It&apos;s a tie!</h2>
             <p className="text-zinc-400 text-sm mt-1">
-              {winners.map((w) => w.nickname).join(" & ")} — {maxVotes} vote{maxVotes !== 1 ? "s" : ""} each
+              {winners.map((w) => w.nickname).join(" & ")} — equal points
             </p>
           </>
         ) : (
           <>
             <h2 className="font-black text-2xl">{winners[0]?.nickname ?? "???"} cooked</h2>
             <p className="text-zinc-400 text-sm mt-1">
-              {maxVotes} vote{maxVotes !== 1 ? "s" : ""}
+              {winners[0]?.rankingPoints ?? 0} ranking points
             </p>
           </>
         )}
       </div>
 
-      {/* Winner(s) */}
-      {winners.map((winner) => (
-        <div
-          key={winner.id}
-          className="bg-amber-400/10 border-2 border-amber-400/40 rounded-2xl p-5"
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-amber-400 text-xs font-black uppercase tracking-widest">
-              {isTie ? "Tied" : "Winner"}
-            </span>
-            <span className="text-amber-400 font-black text-sm">{winner.nickname}</span>
-            <span className="ml-auto text-xs text-amber-600 font-semibold">
-              {winner.voteCount} vote{winner.voteCount !== 1 ? "s" : ""}
-            </span>
-          </div>
-          <div className="space-y-1.5">
-            {winner.lines.map((line) => (
-              <p key={line.id} className="text-sm text-zinc-100 leading-relaxed">
-                {line.text}
-              </p>
-            ))}
-          </div>
-        </div>
+      {sorted.map((sub) => (
+        <SubmissionPatternCard
+          key={sub.id}
+          challenge={challenge}
+          lines={sub.lines}
+          label={sub.nickname ?? "Anonymous"}
+          placementBadge={hasAnyVotes ? (sub.finalPlacement ?? null) : null}
+          rankingPoints={hasAnyVotes ? (sub.rankingPoints ?? 0) : undefined}
+          isOwn={sub.isOwnSubmission}
+        />
       ))}
 
-      {/* Runner-ups */}
-      {runner_ups.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold px-1">
-            Other submissions
-          </p>
-          {runner_ups.map((sub, i) => (
-            <div key={sub.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-semibold text-sm text-zinc-200">
-                  #{winners.length + i + 1} {sub.nickname}
-                </span>
-                <span className="text-xs text-zinc-600">
-                  {sub.voteCount} vote{sub.voteCount !== 1 ? "s" : ""}
-                </span>
-              </div>
-              <div className="space-y-1">
-                {sub.lines.map((line) => (
-                  <p key={line.id} className="text-xs text-zinc-400 leading-relaxed">
-                    {line.text}
-                  </p>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Actions */}
       <div className="space-y-3 pt-2">
         <button
           onClick={onShare}
@@ -1123,6 +1025,11 @@ function RevealView({
         >
           {copied ? "✓ Copied!" : "Share Results"}
         </button>
+        {copyFailed && (
+          <p className="text-xs text-zinc-500 text-center">
+            Couldn&apos;t auto-copy — use the share sheet or copy manually.
+          </p>
+        )}
         <a
           href="/play"
           className="block w-full bg-amber-400 text-zinc-950 font-black py-3.5 rounded-2xl text-center text-base hover:bg-amber-300 transition-all active:scale-95"
@@ -1134,9 +1041,6 @@ function RevealView({
   );
 }
 
-// ── Late arrival view (GROUP_ROOM only) ───────────────────────────────────────
-
-// Shown when a non-joined guest opens a GROUP_ROOM link in WRITING or VOTING state.
 function LateArrivalView({ status }: { status: RoomStateDTO["status"] }) {
   const isVoting = status === "VOTING";
   return (
@@ -1152,7 +1056,6 @@ function LateArrivalView({ status }: { status: RoomStateDTO["status"] }) {
             : "This group room's game has already started. You can't join mid-game."}
         </p>
       </div>
-
       <Link
         href="/play"
         className="block w-full bg-amber-400 text-zinc-950 font-black text-lg py-4 rounded-2xl text-center hover:bg-amber-300 active:scale-95 transition-all"
@@ -1169,18 +1072,20 @@ function LateArrivalView({ status }: { status: RoomStateDTO["status"] }) {
 // ── CHALLENGE_LINK views ───────────────────────────────────────────────────────
 
 function ChallengeLinkView({
-  roomState, hasJoined, hasSubmitted, hasVoted,
-  selectedSubmissionId, setSelectedSubmissionId,
+  roomState, hasJoined, hasSubmitted, hasRanked,
+  rankedIds, onTapSubmission, onSubmitRankings, isSubmittingRanking,
   nickname, setNickname, barLines, onBarLineChange,
   handleJoin, isJoining, handleSubmit, isSubmitting,
-  handleVote, isVoting, handleShare, copied, roomCode,
+  handleShare, copied, copyFailed, roomCode,
 }: {
   roomState: RoomStateDTO;
   hasJoined: boolean;
   hasSubmitted: boolean;
-  hasVoted: boolean;
-  selectedSubmissionId: string | null;
-  setSelectedSubmissionId: (id: string) => void;
+  hasRanked: boolean;
+  rankedIds: string[];
+  onTapSubmission: (id: string) => void;
+  onSubmitRankings: () => void;
+  isSubmittingRanking: boolean;
   nickname: string;
   setNickname: (v: string) => void;
   barLines: string[];
@@ -1189,10 +1094,9 @@ function ChallengeLinkView({
   isJoining: boolean;
   handleSubmit: () => void;
   isSubmitting: boolean;
-  handleVote: () => void;
-  isVoting: boolean;
   handleShare: () => void;
   copied: boolean;
+  copyFailed: boolean;
   roomCode: string;
 }) {
   const { isLocked, locksAt, beat, challenge, participants, submittedCount } = roomState;
@@ -1200,12 +1104,10 @@ function ChallengeLinkView({
   const submissions = roomState.submissions ?? [];
   const lockTimeDisplay = locksAt ? formatLockTime(locksAt) : "9 PM";
 
-  // After locksAt: final results for everyone
   if (isLocked) {
-    return <ChallengeFinalView submissions={submissions} onShare={handleShare} copied={copied} />;
+    return <ChallengeFinalView challenge={challenge} submissions={submissions} onShare={handleShare} copied={copied} copyFailed={copyFailed} />;
   }
 
-  // Before locksAt: not yet joined
   if (!hasJoined) {
     return (
       <ChallengeLinkJoinView
@@ -1221,7 +1123,6 @@ function ChallengeLinkView({
     );
   }
 
-  // Before locksAt: joined, still writing
   if (!hasSubmitted) {
     const { barCount } = challenge;
     const filledCount = barLines.filter((l) => l.trim().length > 0).length;
@@ -1229,13 +1130,10 @@ function ChallengeLinkView({
     return (
       <>
         <div className="space-y-4 pb-36">
-          {/* Live status header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
-                Live Challenge
-              </span>
+              <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">Live Challenge</span>
             </div>
             <span className="text-xs text-amber-400 font-semibold bg-amber-400/10 px-2 py-1 rounded-full">
               Locks at {lockTimeDisplay}
@@ -1255,7 +1153,6 @@ function ChallengeLinkView({
             </div>
           )}
         </div>
-        {/* Sticky submit */}
         <div className="fixed bottom-0 inset-x-0 z-50 pointer-events-none">
           <div
             className="max-w-sm mx-auto px-5 pb-7 pt-6 pointer-events-auto"
@@ -1288,15 +1185,15 @@ function ChallengeLinkView({
     );
   }
 
-  // Before locksAt: joined and submitted — show voting + share
   return (
     <ChallengeLiveView
+      challenge={challenge}
       submissions={submissions}
-      selectedId={selectedSubmissionId}
-      setSelectedId={setSelectedSubmissionId}
-      hasVoted={hasVoted}
-      isVoting={isVoting}
-      onVote={handleVote}
+      rankedIds={rankedIds}
+      onTapSubmission={onTapSubmission}
+      hasRanked={hasRanked}
+      isSubmittingRanking={isSubmittingRanking}
+      onSubmitRankings={onSubmitRankings}
       lockTimeDisplay={lockTimeDisplay}
       roomCode={roomCode}
       submittedCount={submittedCount}
@@ -1304,7 +1201,6 @@ function ChallengeLinkView({
   );
 }
 
-// Join screen for CHALLENGE_LINK rooms
 function ChallengeLinkJoinView({
   hostNickname, lockTimeDisplay, beat, challenge, nickname, setNickname, onJoin, isJoining,
 }: {
@@ -1329,9 +1225,7 @@ function ChallengeLinkJoinView({
         ) : (
           <h1 className="font-black text-2xl mb-1">Today&apos;s Rhyzzle</h1>
         )}
-        <p className="text-zinc-400 text-sm mt-1">
-          Submit your bars and vote before {lockTimeDisplay}.
-        </p>
+        <p className="text-zinc-400 text-sm mt-1">Submit your bars and rank before {lockTimeDisplay}.</p>
       </div>
 
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center gap-3">
@@ -1368,41 +1262,47 @@ function ChallengeLinkJoinView({
   );
 }
 
-// Post-submit view for CHALLENGE_LINK rooms before locksAt — voting + share
 function ChallengeLiveView({
-  submissions, selectedId, setSelectedId, hasVoted, isVoting, onVote,
-  lockTimeDisplay, roomCode, submittedCount,
+  challenge, submissions, rankedIds, onTapSubmission, hasRanked,
+  isSubmittingRanking, onSubmitRankings, lockTimeDisplay, roomCode, submittedCount,
 }: {
+  challenge: RoomStateDTO["challenge"];
   submissions: NonNullable<RoomStateDTO["submissions"]>;
-  selectedId: string | null;
-  setSelectedId: (id: string) => void;
-  hasVoted: boolean;
-  isVoting: boolean;
-  onVote: () => void;
+  rankedIds: string[];
+  onTapSubmission: (id: string) => void;
+  hasRanked: boolean;
+  isSubmittingRanking: boolean;
+  onSubmitRankings: () => void;
   lockTimeDisplay: string;
   roomCode: string;
   submittedCount: number;
 }) {
   const [shareCopied, setShareCopied] = useState(false);
+  const [shareCopyFailed, setShareCopyFailed] = useState(false);
   const otherSubs = submissions.filter((s) => !s.isOwnSubmission);
 
   async function handleShareLink() {
     const url = getRoomUrl(roomCode);
     const text = `Can you beat me? Write to the same beat and prompt. ${url}`;
-    try {
-      if (navigator.share) {
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
         await navigator.share({ title: "Rhyzzle challenge", text, url });
-      } else {
-        await navigator.clipboard.writeText(text);
-        setShareCopied(true);
-        setTimeout(() => setShareCopied(false), 2500);
-      }
-    } catch { /* dismissed */ }
+      } catch { /* dismissed */ }
+      return;
+    }
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setShareCopied(true);
+      setShareCopyFailed(false);
+      setTimeout(() => setShareCopied(false), 2500);
+    } else {
+      setShareCopyFailed(true);
+    }
   }
 
   return (
     <div className="space-y-4 pb-4">
-      {/* Live status card */}
+      {/* Live status */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
@@ -1415,17 +1315,14 @@ function ChallengeLiveView({
         </div>
         <p className="text-zinc-500 text-sm">
           {submittedCount > 1
-            ? `${submittedCount} submissions in. Voting is open.`
+            ? `${submittedCount} submissions in. Rank who cooked.`
             : "Waiting for challengers. Send the link."}
         </p>
         {submittedCount >= 2 && (
-          <p className="text-xs text-zinc-600 mt-1">
-            Votes can change before {lockTimeDisplay}.
-          </p>
+          <p className="text-xs text-zinc-600 mt-1">Rankings can change before {lockTimeDisplay}.</p>
         )}
       </div>
 
-      {/* Voting area */}
       {otherSubs.length === 0 ? (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 text-center">
           <div className="text-3xl mb-3">⏳</div>
@@ -1434,50 +1331,55 @@ function ChallengeLiveView({
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-            <p className="text-xs font-semibold uppercase tracking-widest text-zinc-400">Who cooked?</p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+              <p className="text-xs font-semibold uppercase tracking-widest text-zinc-400">Rank who cooked</p>
+            </div>
+            <p className="text-xs text-zinc-600">Tap in order — best first</p>
           </div>
+
+          {/* Rank progress */}
+          {rankedIds.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs text-zinc-500 font-semibold">Your ranking:</span>
+              {rankedIds.map((id, i) => {
+                const sub = submissions.find((s) => s.id === id);
+                const idx = otherSubs.findIndex((s) => s.id === id);
+                const letter = idx >= 0 ? String.fromCharCode(65 + idx) : "?";
+                return (
+                  <span
+                    key={id}
+                    className="text-xs font-black bg-violet-500/20 text-violet-300 border border-violet-500/30 px-2 py-0.5 rounded-full"
+                  >
+                    #{i + 1} {letter}
+                  </span>
+                );
+              })}
+            </div>
+          )}
 
           {submissions.map((sub, i) => {
             const isOwn = sub.isOwnSubmission ?? false;
-            const isSelected = selectedId === sub.id;
+            const rankIdx = rankedIds.indexOf(sub.id);
+            const rankBadge = rankIdx !== -1 ? rankIdx + 1 : null;
+            const label = isOwn ? "Your submission" : `Submission ${String.fromCharCode(65 + i)}`;
             return (
-              <button
+              <SubmissionPatternCard
                 key={sub.id}
-                onClick={() => !isOwn && setSelectedId(sub.id)}
-                disabled={isOwn}
-                className={cn(
-                  "w-full text-left p-4 rounded-2xl border-2 transition-all",
-                  isOwn
-                    ? "border-zinc-800 bg-zinc-900/50 opacity-70 cursor-not-allowed"
-                    : isSelected
-                    ? "border-amber-400 bg-amber-400/10 shadow-lg shadow-amber-900/20"
-                    : "border-zinc-800 bg-zinc-900 hover:border-zinc-600 active:scale-[0.99]"
-                )}
-              >
-                <div className="flex items-center justify-between mb-2.5">
-                  <span className="text-xs font-black uppercase tracking-widest text-zinc-500">
-                    {isOwn ? "Your submission" : `Submission ${String.fromCharCode(65 + i)}`}
-                  </span>
-                  {isSelected && !isOwn && (
-                    <span className="text-xs text-amber-400 font-black">
-                      {hasVoted ? "✓ Your vote" : "✓ Selected"}
-                    </span>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  {sub.lines.map((line) => (
-                    <p key={line.id} className="text-sm text-zinc-200 leading-relaxed">{line.text}</p>
-                  ))}
-                </div>
-              </button>
+                challenge={challenge}
+                lines={sub.lines}
+                label={label}
+                rankBadge={rankBadge}
+                isOwn={isOwn}
+                onClick={isOwn ? undefined : () => onTapSubmission(sub.id)}
+              />
             );
           })}
 
           <button
-            onClick={onVote}
-            disabled={!selectedId || isVoting}
+            onClick={onSubmitRankings}
+            disabled={rankedIds.length === 0 || isSubmittingRanking}
             className={cn(
               "w-full font-black text-lg py-4 rounded-2xl transition-all active:scale-95",
               "bg-gradient-to-r from-blue-600 to-blue-500 text-white",
@@ -1485,12 +1387,18 @@ function ChallengeLiveView({
               "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
             )}
           >
-            {isVoting ? "Voting..." : hasVoted ? "Change Vote →" : "Cast Vote"}
+            {isSubmittingRanking
+              ? "Submitting..."
+              : hasRanked
+              ? `Change Rankings →`
+              : rankedIds.length === 0
+              ? "Tap to rank submissions"
+              : `Submit Rankings (${rankedIds.length} ranked)`}
           </button>
 
-          {hasVoted && (
+          {hasRanked && (
             <p className="text-xs text-zinc-600 text-center">
-              Votes can change until results lock at {lockTimeDisplay}.
+              Rankings can change until results lock at {lockTimeDisplay}.
             </p>
           )}
         </div>
@@ -1511,25 +1419,35 @@ function ChallengeLiveView({
         >
           {shareCopied ? "✓ Link copied!" : "🔗 Send to Group Chat"}
         </button>
+        {shareCopyFailed && (
+          <p className="text-xs text-zinc-400 text-center mt-2">
+            Couldn&apos;t copy — press and hold the link above to copy manually.
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
-// Final results view for CHALLENGE_LINK rooms after locksAt
 function ChallengeFinalView({
-  submissions, onShare, copied,
+  challenge, submissions, onShare, copied, copyFailed,
 }: {
+  challenge: RoomStateDTO["challenge"];
   submissions: NonNullable<RoomStateDTO["submissions"]>;
   onShare: () => void;
   copied: boolean;
+  copyFailed: boolean;
 }) {
-  const sorted = [...submissions].sort((a, b) => b.voteCount - a.voteCount);
-  const maxVotes = sorted[0]?.voteCount ?? 0;
-  const winners = sorted.filter((s) => s.voteCount === maxVotes && maxVotes > 0);
+  const sorted = [...submissions].sort((a, b) => {
+    const pa = a.finalPlacement ?? 999, pb = b.finalPlacement ?? 999;
+    if (pa !== pb) return pa - pb;
+    return (b.rankingPoints ?? 0) - (a.rankingPoints ?? 0);
+  });
+
+  const hasAnyVotes = submissions.some((s) => (s.rankingPoints ?? 0) > 0);
+  const winners = sorted.filter((s) => s.isWinner);
   const isTie = winners.length > 1;
-  const runnerUps = sorted.filter((s) => !winners.includes(s));
-  const noVotes = maxVotes === 0;
+  const noVotes = !hasAnyVotes;
 
   return (
     <div className="space-y-5 pb-6">
@@ -1538,71 +1456,37 @@ function ChallengeFinalView({
         <div className="text-5xl mb-3">{noVotes ? "📜" : isTie ? "🤝" : "👑"}</div>
         {noVotes ? (
           <>
-            <h2 className="font-black text-2xl">No votes this round</h2>
+            <h2 className="font-black text-2xl">No rankings this round</h2>
             <p className="text-zinc-400 text-sm mt-1">Results locked. All submissions below.</p>
           </>
         ) : isTie ? (
           <>
             <h2 className="font-black text-2xl">It&apos;s a tie!</h2>
             <p className="text-zinc-400 text-sm mt-1">
-              {winners.map((w) => w.nickname).join(" & ")} — {maxVotes} vote{maxVotes !== 1 ? "s" : ""} each
+              {winners.map((w) => w.nickname).join(" & ")} — equal points
             </p>
           </>
         ) : (
           <>
             <h2 className="font-black text-2xl">{winners[0]?.nickname ?? "???"} cooked</h2>
             <p className="text-zinc-400 text-sm mt-1">
-              {maxVotes} vote{maxVotes !== 1 ? "s" : ""}
+              {winners[0]?.rankingPoints ?? 0} ranking points
             </p>
           </>
         )}
       </div>
 
-      {winners.map((w) => (
-        <div key={w.id} className="bg-amber-400/10 border-2 border-amber-400/40 rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-amber-400 text-xs font-black uppercase tracking-widest">
-              {isTie ? "Tied" : "Winner"}
-            </span>
-            <span className="text-amber-400 font-black text-sm">{w.nickname}</span>
-            <span className="ml-auto text-xs text-amber-600 font-semibold">
-              {w.voteCount} vote{w.voteCount !== 1 ? "s" : ""}
-            </span>
-          </div>
-          <div className="space-y-1.5">
-            {w.lines.map((line) => (
-              <p key={line.id} className="text-sm text-zinc-100 leading-relaxed">{line.text}</p>
-            ))}
-          </div>
-        </div>
+      {sorted.map((sub) => (
+        <SubmissionPatternCard
+          key={sub.id}
+          challenge={challenge}
+          lines={sub.lines}
+          label={sub.nickname ?? "Anonymous"}
+          placementBadge={hasAnyVotes ? (sub.finalPlacement ?? null) : null}
+          rankingPoints={hasAnyVotes ? (sub.rankingPoints ?? 0) : undefined}
+          isOwn={sub.isOwnSubmission}
+        />
       ))}
-
-      {runnerUps.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold px-1">
-            {noVotes ? "All submissions" : "Other submissions"}
-          </p>
-          {runnerUps.map((sub, i) => (
-            <div key={sub.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-semibold text-sm text-zinc-200">
-                  {noVotes ? sub.nickname : `#${winners.length + i + 1} ${sub.nickname}`}
-                </span>
-                {!noVotes && (
-                  <span className="text-xs text-zinc-600">
-                    {sub.voteCount} vote{sub.voteCount !== 1 ? "s" : ""}
-                  </span>
-                )}
-              </div>
-              <div className="space-y-1">
-                {sub.lines.map((line) => (
-                  <p key={line.id} className="text-xs text-zinc-400 leading-relaxed">{line.text}</p>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="space-y-3 pt-2">
         <button
@@ -1611,6 +1495,11 @@ function ChallengeFinalView({
         >
           {copied ? "✓ Copied!" : "Copy Results"}
         </button>
+        {copyFailed && (
+          <p className="text-xs text-zinc-500 text-center">
+            Couldn&apos;t auto-copy — use the share sheet or copy manually.
+          </p>
+        )}
         <Link
           href="/play"
           className="block w-full bg-amber-400 text-zinc-950 font-black py-3.5 rounded-2xl text-center text-base hover:bg-amber-300 transition-all active:scale-95"
@@ -1627,4 +1516,3 @@ function ChallengeFinalView({
     </div>
   );
 }
-

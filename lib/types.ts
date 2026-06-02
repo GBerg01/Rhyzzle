@@ -95,10 +95,15 @@ export interface SubmissionDTO {
   nickname: string | null; // null when anonymous (VOTING state)
   rawText: string;
   lines: SubmissionLineDTO[];
-  voteCount: number; // 0 during VOTING (hidden), real count in REVEAL
+  voteCount: number; // 0 during VOTING (hidden); firstPlaceVotes in REVEAL
   isWinner?: boolean;
   isOwnSubmission?: boolean; // server-computed: true if this belongs to the current requester
   constraintResults: ConstraintResultDTO[];
+  // Ranked voting placement fields — present in REVEAL/locked states only
+  rankingPoints?: number;
+  firstPlaceVotes?: number;
+  averageRank?: number | null;
+  finalPlacement?: number | null;
 }
 
 export interface HighlightSpanDTO {
@@ -151,12 +156,12 @@ export interface RoomStateDTO {
   currentParticipantId: string | null;
   // True if the current participant has already submitted their bars this round
   currentParticipantHasSubmitted: boolean;
-  // True if the current participant has already cast their vote
+  // True if the current participant has already submitted their rankings
   currentParticipantHasVoted: boolean;
-  // CHALLENGE_LINK: which submissionId this participant last voted for (null = hasn't voted).
-  // Always null in stored state; computed per-requester at GET time.
-  currentParticipantVotedForId: string | null;
-  // How many participants have voted (shown in VOTING state)
+  // This participant's current rankings, sorted by rankPosition ascending.
+  // Empty array if they haven't voted yet.
+  currentParticipantRankings: RankingDTO[];
+  // How many unique participants have voted (shown in VOTING state)
   votedCount: number;
   // GROUP_ROOM: present in VOTING and REVEAL states.
   // CHALLENGE_LINK: present whenever there are submissions (for voting UI).
@@ -206,8 +211,13 @@ export interface SubmitBarsResponse {
   submissionId: string;
 }
 
-export interface CastVoteRequest {
+export interface RankingDTO {
   submissionId: string;
+  rankPosition: number; // 1 = best, 2 = second-best, etc.
+}
+
+export interface CastVoteRequest {
+  rankings: RankingDTO[];
 }
 
 export interface CastVoteResponse {

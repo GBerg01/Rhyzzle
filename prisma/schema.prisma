@@ -178,6 +178,11 @@ enum ConstraintType {
 
 // ─── Rooms ─────────────────────────────────────────────────────────────────
 
+enum RoomMode {
+  CHALLENGE_LINK // live-all-day timing model, no host state machine
+  GROUP_ROOM     // host-led state machine: LOBBY → WRITING → VOTING → REVEAL
+}
+
 model Room {
   id              String      @id @default(cuid())
   roomCode        String      @unique // short human-readable code e.g. "XK9F2"
@@ -185,23 +190,31 @@ model Room {
   hostId          String?     // null = anonymous/guest host
   guestHostId     String?     // guest user who created the room
   groupId         String?
-  beatId          String
-  challengeId     String
+  // beatId/challengeId are nullable: daily-challenge rooms store snapshots instead of FK references
+  beatId          String?
+  challengeId     String?
+  // Snapshots of beat and challenge data at room creation time.
+  // Used for CHALLENGE_LINK and DAILY_CHALLENGE rooms where the beat/challenge is static JS, not a DB row.
+  beatSnapshot      Json?
+  challengeSnapshot Json?
   status          RoomStatus  @default(LOBBY)
+  roomMode        RoomMode    @default(GROUP_ROOM)
   privacy         RoomPrivacy @default(PRIVATE)
   votingMode      VotingMode  @default(ANONYMOUS)
   maxParticipants Int?
   deadline        DateTime?
-  revealAt        DateTime?   // auto-advance to REVEAL at this time
+  // CHALLENGE_LINK: ISO timestamp when submissions and voting lock (set at creation, 9 PM same day)
+  locksAt         DateTime?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
   host         User?             @relation("RoomHost", fields: [hostId], references: [id])
-  beat         Beat              @relation(fields: [beatId], references: [id])
-  challenge    Challenge         @relation(fields: [challengeId], references: [id])
+  beat         Beat?             @relation(fields: [beatId], references: [id])
+  challenge    Challenge?        @relation(fields: [challengeId], references: [id])
   group        Group?            @relation(fields: [groupId], references: [id])
   participants RoomParticipant[]
   submissions  Submission[]
+  votes        Vote[]
 
   @@index([roomCode])
   @@index([status])
@@ -252,7 +265,7 @@ model RoomParticipant {
 model Submission {
   id             String   @id @default(cuid())
   roomId         String
-  participantId  String   @unique // one submission per participant per room
+  participantId  String   @unique // one submission per participant (RoomParticipant.id) per room
   userId         String?
   guestUserId    String?
   rawText        String   // full submission as a single string
@@ -311,18 +324,25 @@ model SubmissionLine {
 
 model Vote {
   id            String   @id @default(cuid())
-  submissionId  String
-  participantId String
+  roomId        String   // which room this vote belongs to
+  submissionId  String   // which submission was voted for
+  participantId String   // who cast the vote (RoomParticipant.id)
+  rankPosition  Int      // 1 = best, 2 = second-best, etc. (Borda count)
   userId        String?
   guestUserId   String?
   createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
+  room        Room            @relation(fields: [roomId], references: [id], onDelete: Cascade)
   submission  Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   participant RoomParticipant @relation(fields: [participantId], references: [id])
   user        User?           @relation(fields: [userId], references: [id])
   guestUser   GuestUser?      @relation(fields: [guestUserId], references: [id])
 
-  @@unique([submissionId, participantId]) // one vote per participant per submission
+  // One rank per submission per participant per room
+  @@unique([roomId, participantId, submissionId])
+  // One submission per rank position per participant per room
+  @@unique([roomId, participantId, rankPosition])
   @@map("votes")
 }
 

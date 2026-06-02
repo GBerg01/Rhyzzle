@@ -87,6 +87,48 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 12 — 2026-06-02
+
+**Goal:** Improve error recovery for the solo play → Challenge Friends → room creation flow. Prevent users from getting stuck after a failed API call. Improve server-side error messages.
+
+**What was done:**
+
+### `app/api/rooms/route.ts`
+- Replaced generic `"Internal server error"` catch with specific cases:
+  - Prisma P2002 (unique constraint): `"Room code collision — please try again"`
+  - Prisma P1001/P1017 (DB unreachable/closed): `"Database connection failed — check the DB is running"`
+  - In development (`NODE_ENV === "development"`): returns the real `err.message` so the exact failure is visible
+  - Production fallback: `"Failed to create challenge room — please try again"` (actionable, not opaque)
+- Server-side log unchanged: full error still logged via `console.error`
+
+### `app/play/[barCount]/page.tsx`
+- Replaced flat error `<p>` with a full recovery card when `challengeError` is set:
+  - Shows real API error message (already surfaced from the server)
+  - "Try Again" button — calls `handleChallengeFriends()` directly (function already clears error state at top)
+  - "Start Fresh →" link to `/play` — exits the flow cleanly
+  - Dev-only note (guarded by `process.env.NODE_ENV === "development"`): "Local dev: if you recently reset the DB, try a fresh incognito window or restart pnpm dev."
+- When no error: normal "Challenge Friends →" button is shown (unchanged behavior)
+- TypeScript: clean
+
+### Ranked voting clipboard fixes (carried over from previous session)
+- `WritingView.handleShareChallenge` — replaced raw `navigator.clipboard.writeText` with `copyToClipboard` helper; added `shareCopyFailed` state; fallback message shown below button
+- `ChallengeLiveView.handleShareLink` — same fix
+- `RevealView` — fixed missing `copyFailed` prop in destructure (TypeScript was catching `copyFailed` as undeclared)
+
+**TypeScript:** `pnpm tsc --noEmit` — clean.
+
+**What was made recoverable:**
+- Failed Challenge Friends API call no longer leaves the user stuck on a red message with no escape
+- Server errors in development now surface the real cause instead of "Internal server error"
+- DB connection failures get their own message instead of a generic 500
+
+**What we are intentionally not over-optimizing:**
+- Stale `rhyzzle_participant` cookies: these are `httpOnly` (JS can't clear them), and they already degrade gracefully — GET room returns `currentParticipantId: null` → user sees join form. No crash.
+- Challenge Friends retry doesn't clear the name input — intentional, user typed it once.
+- No deep Prisma error class imports — we check `(err as any).code` string, which covers the real-world failure cases without extra deps.
+
+---
+
 ## Session 11 — 2026-06-01
 
 **Goal:** Replace the state-machine voting model for Challenge Links with a "live all day, locks at 9 PM" timing model.

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRoom, updateRoom } from "@/lib/room-store";
+import { prisma } from "@/lib/prisma";
 
 // POST /api/rooms/[roomCode]/start
 // Host-only. Advances room from LOBBY → WRITING. Idempotent if already WRITING.
@@ -11,27 +11,36 @@ export async function POST(
     const { roomCode } = await params;
     const upperCode = roomCode.toUpperCase();
 
-    const room = getRoom(upperCode);
+    const participantCookie = req.cookies.get("rhyzzle_participant")?.value ?? null;
+    if (!participantCookie) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { roomCode: upperCode },
+      include: { participants: { where: { id: participantCookie } } },
+    });
+
     if (!room) {
       return NextResponse.json({ error: "Room not found" }, { status: 404 });
     }
 
-    const participantCookie = req.cookies.get("rhyzzle_participant")?.value ?? null;
-    const participant = participantCookie
-      ? room.participants.find((p) => p.id === participantCookie) ?? null
-      : null;
-
+    const participant = room.participants[0] ?? null;
     if (!participant?.isHost) {
       return NextResponse.json({ error: "Only the host can start the game" }, { status: 403 });
     }
 
     if (room.status !== "LOBBY") {
-      // Already started — idempotent
       return NextResponse.json({ status: room.status });
     }
 
-    const updated = updateRoom(upperCode, { status: "WRITING" });
-    return NextResponse.json({ status: updated?.status ?? "WRITING" });
+    const updated = await prisma.room.update({
+      where: { id: room.id },
+      data: { status: "WRITING" },
+      select: { status: true },
+    });
+
+    return NextResponse.json({ status: updated.status });
   } catch (err) {
     console.error("[POST /api/rooms/[roomCode]/start]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

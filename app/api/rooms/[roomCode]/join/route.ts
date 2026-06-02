@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { JoinRoomRequest, JoinRoomResponse } from "@/lib/types";
 import { generateSessionToken } from "@/lib/utils";
-import { getRoom, updateRoom } from "@/lib/room-store";
+import { prisma } from "@/lib/prisma";
 
 // POST /api/rooms/[roomCode]/join
-// Adds a participant to the room. Allowed states depend on roomMode:
+// Adds a participant to the room. Idempotent: if the participant cookie already
+// matches a record in this room, returns success without creating a duplicate.
 //
+// Allowed states depend on roomMode:
 //   LOBBY (any mode)          — always allowed
 //   WRITING + CHALLENGE_LINK  — allowed (friend joining to write their bars)
 //   VOTING  + CHALLENGE_LINK  — allowed (late spectator joining to vote)
 //   everything else           — blocked with contextual error
-//
-// Phase 1 DB: replace store calls with prisma.guestUser.create + prisma.roomParticipant.create
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
@@ -25,22 +25,48 @@ export async function POST(
       return NextResponse.json({ error: "Nickname is required" }, { status: 400 });
     }
 
-    const room = getRoom(upperCode);
+    const room = await prisma.room.findUnique({
+      where: { roomCode: upperCode },
+      select: { id: true, status: true, roomMode: true },
+    });
+
     if (!room) {
       return NextResponse.json({ error: "Room not found" }, { status: 404 });
+    }
+
+    // Idempotency: if requester's cookie already points to a participant in this room, succeed early
+    const participantCookie = req.cookies.get("rhyzzle_participant")?.value ?? null;
+    const cookieOpts = { httpOnly: true, sameSite: "lax" as const, maxAge: 60 * 60 * 24, path: "/" };
+
+    if (participantCookie) {
+      const existing = await prisma.roomParticipant.findFirst({
+        where: { id: participantCookie, roomId: room.id },
+        select: { id: true, nickname: true, isHost: true },
+      });
+      if (existing) {
+        const existingSession = req.cookies.get("rhyzzle_session")?.value ?? generateSessionToken();
+        const response: JoinRoomResponse = {
+          participantId: existing.id,
+          sessionToken: existingSession,
+          nickname: existing.nickname,
+          isHost: existing.isHost,
+        };
+        const nextResponse = NextResponse.json(response, { status: 200 });
+        nextResponse.cookies.set("rhyzzle_session", existingSession, cookieOpts);
+        nextResponse.cookies.set("rhyzzle_participant", existing.id, cookieOpts);
+        return nextResponse;
+      }
     }
 
     const { status, roomMode } = room;
     const isChallenge = roomMode === "CHALLENGE_LINK";
 
-    // Determine whether this join is allowed
     const canJoin =
       status === "LOBBY" ||
       (status === "WRITING" && isChallenge) ||
       (status === "VOTING" && isChallenge);
 
     if (!canJoin) {
-      // Provide a contextual error so the client can render a useful screen
       if (status === "REVEAL" || status === "CLOSED") {
         return NextResponse.json(
           { error: "This round has ended.", roomStatus: status, roomMode },
@@ -61,40 +87,36 @@ export async function POST(
 
     const nickname = body.nickname.trim().slice(0, 20);
     const sessionToken = generateSessionToken();
-    const participantId = `p_${upperCode}_${Date.now()}`;
-    const isFirstParticipant = room.participants.length === 0;
 
-    const updatedParticipants = [
-      ...room.participants,
-      {
-        id: participantId,
-        nickname,
-        isHost: isFirstParticipant,
-        joinedAt: new Date().toISOString(),
-        hasSubmitted: false,
-      },
-    ];
-
-    updateRoom(upperCode, {
-      participants: updatedParticipants,
-      totalCount: updatedParticipants.length,
+    const { participant } = await prisma.$transaction(async (tx) => {
+      const guest = await tx.guestUser.create({
+        data: { nickname, sessionId: sessionToken },
+      });
+      const p = await tx.roomParticipant.create({
+        data: {
+          roomId: room.id,
+          guestUserId: guest.id,
+          nickname,
+          isHost: false,
+        },
+      });
+      return { participant: p, guestUser: guest };
     });
 
     console.log(
-      `[POST /api/rooms/${upperCode}/join] ${nickname} joined in ${status} state (isHost: ${isFirstParticipant})`
+      `[POST /api/rooms/${upperCode}/join] ${nickname} joined in ${status} state`
     );
 
     const response: JoinRoomResponse = {
-      participantId,
+      participantId: participant.id,
       sessionToken,
       nickname,
-      isHost: isFirstParticipant,
+      isHost: false,
     };
 
     const nextResponse = NextResponse.json(response, { status: 201 });
-    const cookieOpts = { httpOnly: true, sameSite: "lax" as const, maxAge: 60 * 60 * 24, path: "/" };
     nextResponse.cookies.set("rhyzzle_session", sessionToken, cookieOpts);
-    nextResponse.cookies.set("rhyzzle_participant", participantId, cookieOpts);
+    nextResponse.cookies.set("rhyzzle_participant", participant.id, cookieOpts);
 
     return nextResponse;
   } catch (err) {
