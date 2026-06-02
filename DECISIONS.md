@@ -278,6 +278,18 @@ Format:
 
 ---
 
+## 2026-06-02 — Prisma XOR validation fix: explicit beatId: null required for snapshot rooms
+
+**Decision:** When creating rooms that use `beatSnapshot`/`challengeSnapshot` (not FK relations), explicitly pass `beatId: null` and `challengeId: null` to `tx.room.create`.
+
+**Reason:** Prisma 6 generates an `XOR<RoomCreateInput, RoomUncheckedCreateInput>` union type for models with optional relations. At runtime the Prisma engine must resolve which branch to use. Without explicit `beatId: null`, the engine cannot determine which path applies and falls back to requiring the `beat` relation object — producing "Argument `beat` is missing" even though the schema has `beat Beat?` (fully optional). Explicit nulls pin the call to `RoomUncheckedCreateInput` (raw FK path), which skips the relation-object requirement entirely.
+
+**Tradeoffs:** None — schema was already correct, database already in sync. This is purely a Prisma runtime type-resolution hint, not a schema or data model change.
+
+**How to apply:** Any `prisma.room.create()` or `tx.room.create()` that uses `beatSnapshot` instead of a `beat: { connect }` relation must include `beatId: null, challengeId: null` explicitly. Same pattern applies to any other optional relation fields that use a snapshot pattern.
+
+---
+
 ## 2026-06-01 — Tailwind CSS only (no styled-components, no CSS modules)
 
 **Decision:** Style everything with Tailwind CSS utility classes. Use shadcn/ui selectively for complex components (modals, selects) by copying component code.

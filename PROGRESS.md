@@ -87,6 +87,49 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 17 — 2026-06-02
+
+**Goal:** Fix Prisma "Argument `beat` is missing" runtime error on Challenge Friends room creation, and polish the writing canvas so rows have full color identity while typing.
+
+**What was done:**
+
+### Bug fix — `app/api/rooms/route.ts`
+- Added explicit `beatId: null` and `challengeId: null` to `tx.room.create` data object
+- Root cause: Prisma 6's `XOR<RoomCreateInput, RoomUncheckedCreateInput>` type — without explicit nulls, the engine couldn't resolve which input union branch to use at runtime and fell back to requiring the `beat` relation object. Explicit nulls pin it to `RoomUncheckedCreateInput`.
+- All three room creation paths affected (DAILY_CHALLENGE, CHALLENGE_LINK, custom beatId/challengeId)
+- Schema was correct; no migration needed — `pnpm db:push` already confirmed "database is already in sync"
+
+### Canvas color polish — `lib/lyric-meta.ts`
+- Added three new fields to `C` palette type: `textDark`, `rowFocused`, `gutterFocused`
+- All 8 colors defined: `rowFocused`/`gutterFocused` = one shade darker bg (bg-*-100); `textDark` = very dark color-tinted text (text-*-950, zinc uses text-zinc-700)
+- Purpose: each row now has full color identity whether empty, unfocused, or focused
+
+### Canvas rewrite — `components/lyric-puzzle-canvas.tsx`
+- Added `FOCUS_STRIP` and `CANVAS_BORDER_FOCUSED` constant maps (`Record<LineColor, string>`)
+- Added `focusedLine: number | null` state — tracked via `onFocus`/`onBlur` on each input
+- `focusedColor` derived from active line's chip color
+- Canvas card border now follows focused line color (via `CANVAS_BORDER_FOCUSED[focusedColor]`); `border-green-400/40` when all filled; `border-transparent` when unfocused
+- Each row: `relative` positioned, always uses `col.row` / `col.rowFocused` (never plain white fallback)
+- Focus strip: absolute 3px left strip inside the row, colored with `FOCUS_STRIP[m.chip.color]` — appears only on focused row
+- Gutter: always `col.gutter` / `col.gutterFocused` — no grey fallback even when empty
+- Scheme badge in gutter: always `col.chip col.text` — no grey fallback
+- Input text: `col.textDark` — dark color-tinted, readable on light bg (e.g., amber-950 on yellow-50)
+
+**TypeScript:** `pnpm tsc --noEmit` — clean, zero errors.
+
+**What changed visually:**
+- Writing canvas rows are always color-tinted, never plain white
+- Focused row gets a visible left strip (3px color accent) and slightly darker background
+- Canvas card border changes color to match whichever line is active
+- Typed text is dark color-tinted (not default zinc/black) — each bar feels tied to its scheme slot
+
+**Key constraints preserved:**
+- Live hint system unchanged (debounced 300ms, required word chips, rhyme hints, alliteration feedback)
+- No AI calls, no submission blocking
+- Ranked voting flow untouched
+
+---
+
 ## Session 16 — 2026-06-02
 
 **Goal:** Phase 5A.2 — add live editor indicators to LyricPuzzleCanvas. As the user writes bars, the canvas shows lightweight in-editor guidance without blocking submission or calling AI.
