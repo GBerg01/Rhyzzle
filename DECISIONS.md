@@ -218,6 +218,16 @@ Format:
 
 ---
 
+## 2026-06-01 — Challenge Link voting is open to any submitted participant
+
+**Decision:** In `CHALLENGE_LINK` rooms, any participant who has submitted their bars can trigger `POST /api/rooms/[roomCode]/start-voting`. In `GROUP_ROOM` rooms, only the host can start voting.
+
+**Reason:** Challenge links are designed to work without the creator staying active. If the creator sends a link, closes their browser, and friends submit bars, the vote should be able to proceed. Making voting host-only for challenge links would break the use case — the "host" (creator) may never open the room again.
+
+**How to apply:** The `RoomStateDTO` now carries a `roomMode: "CHALLENGE_LINK" | "GROUP_ROOM"` field stored at creation. `start-voting` reads this field to determine the authorization rule. The room page `WritingView` reads `roomMode` to decide who sees the "Start Voting" button and whether to show the share card (challenge links only).
+
+---
+
 ## 2026-06-01 — CHALLENGE_LINK rooms start in WRITING, not LOBBY
 
 **Decision:** When a user creates a Challenge Link (after solo play), the room is created with `status: "WRITING"`, not `"LOBBY"`. The creator's bars are immediately saved as a submission.

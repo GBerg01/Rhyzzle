@@ -121,6 +121,11 @@ export interface ConstraintResultDTO {
 
 // ─── Room State (returned by GET /api/rooms/[roomCode]) ───────────────────
 
+// How this room was created — controls voting permissions and UX copy.
+// CHALLENGE_LINK: solo daily play → "Challenge Friends"; any submitted participant can start voting.
+// GROUP_ROOM: host-led room (DAILY_CHALLENGE or legacy custom); host-only starts voting.
+export type RoomMode = "CHALLENGE_LINK" | "GROUP_ROOM";
+
 export interface RoomStateDTO {
   id: string;
   roomCode: string;
@@ -128,6 +133,7 @@ export interface RoomStateDTO {
   status: RoomStatus;
   privacy: RoomPrivacy;
   votingMode: VotingMode;
+  roomMode: RoomMode;
   deadline: string | null;
   beat: BeatDTO;
   challenge: ChallengeDTO;

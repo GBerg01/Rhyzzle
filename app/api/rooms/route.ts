@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { CreateRoomRequest, CreateRoomResponse, RoomStateDTO } from "@/lib/types";
+import type { CreateRoomRequest, CreateRoomResponse, RoomStateDTO, RoomMode } from "@/lib/types";
 import { generateRoomCode, generateSessionToken } from "@/lib/utils";
 import { saveRoom, roomExists, saveSubmission } from "@/lib/room-store";
 import { SAMPLE_BEATS, SAMPLE_CHALLENGES } from "@/lib/sample-data";
@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
     let beat: RoomStateDTO["beat"];
     let challenge: RoomStateDTO["challenge"];
     let initialStatus: RoomStateDTO["status"] = "LOBBY";
+    let roomMode: RoomMode = "GROUP_ROOM";
 
     if (body.source === "DAILY_CHALLENGE" || body.source === "CHALLENGE_LINK") {
       const barCount = (body.barCount ?? 6) as DailyBarCount;
@@ -48,6 +49,7 @@ export async function POST(req: NextRequest) {
       // Challenge links skip LOBBY — they start in WRITING (creator already has bars)
       if (body.source === "CHALLENGE_LINK") {
         initialStatus = "WRITING";
+        roomMode = "CHALLENGE_LINK";
       }
     } else {
       // Legacy custom room path
@@ -133,6 +135,7 @@ export async function POST(req: NextRequest) {
       status: initialStatus,
       privacy: body.privacy ?? "PRIVATE",
       votingMode: "ANONYMOUS",
+      roomMode,
       deadline: body.deadline ?? null,
       beat,
       challenge,

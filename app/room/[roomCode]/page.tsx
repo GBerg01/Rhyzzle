@@ -266,7 +266,7 @@ export default function RoomPage() {
 
   if (!roomState) return null;
 
-  const { status, beat, challenge, participants, submittedCount, totalCount, isHost } = roomState;
+  const { status, beat, challenge, participants, submittedCount, totalCount, isHost, roomMode } = roomState;
 
   // Derive current participant's nickname from the participant list
   const myNickname = participantId
@@ -345,6 +345,8 @@ export default function RoomPage() {
             submittedCount={submittedCount}
             totalCount={totalCount}
             isHost={isHost}
+            roomMode={roomMode}
+            roomCode={roomCode}
             onStartVoting={handleStartVoting}
             isStartingVoting={isStartingVoting}
           />
@@ -706,6 +708,8 @@ function WritingView({
   submittedCount,
   totalCount,
   isHost,
+  roomMode,
+  roomCode,
   onStartVoting,
   isStartingVoting,
 }: {
@@ -719,35 +723,71 @@ function WritingView({
   submittedCount: number;
   totalCount: number;
   isHost: boolean;
+  roomMode: RoomStateDTO["roomMode"];
+  roomCode: string;
   onStartVoting: () => void;
   isStartingVoting: boolean;
 }) {
   const { barCount } = challenge;
   const filledCount = barLines.filter((l) => l.trim().length > 0).length;
   const isValid = barLines.length === barCount && barLines.every((l) => l.trim().length > 0);
-  const canStartVoting = isHost && submittedCount >= 2;
+
+  // Who can trigger voting depends on the room mode:
+  // CHALLENGE_LINK: any submitted participant (once ≥ 2 submissions exist)
+  // GROUP_ROOM: host only
+  const isChallenge = roomMode === "CHALLENGE_LINK";
+  const canStartVoting = isChallenge
+    ? hasSubmitted && submittedCount >= 2
+    : isHost && submittedCount >= 2;
+
+  const [shareCopied, setShareCopied] = useState(false);
+
+  async function handleShareChallenge() {
+    const url = getRoomUrl(roomCode);
+    const text = `Think you can beat me? Write to the same beat. ${url}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Rhyzzle challenge", text, url });
+      } else {
+        await navigator.clipboard.writeText(text);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2500);
+      }
+    } catch {
+      // dismissed or unavailable
+    }
+  }
 
   // ── Waiting / submitted state ────────────────────────────────────────────
   if (hasSubmitted) {
     const pct = totalCount > 0 ? (submittedCount / totalCount) * 100 : 0;
+
     return (
       <div className="space-y-4">
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 text-center">
-          <div className="text-4xl mb-3">🔥</div>
-          <p className="font-black text-xl mb-1 text-white">Bars submitted!</p>
-          <p className="text-zinc-500 text-sm mb-4">
-            {submittedCount} / {totalCount} submitted
-          </p>
+        {/* Status card */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="text-2xl">🔥</div>
+            <div>
+              <p className="font-black text-base text-white">Bars submitted!</p>
+              <p className="text-zinc-500 text-sm">{submittedCount} / {totalCount} written</p>
+            </div>
+          </div>
+
+          {/* Submission progress bar */}
           <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-4">
             <div
               className="h-full bg-violet-500 rounded-full transition-all duration-500"
               style={{ width: `${pct}%` }}
             />
           </div>
+
           {canStartVoting ? (
             <>
               <p className="text-xs text-green-400 font-semibold mb-3">
-                {submittedCount >= totalCount ? "Everyone's in — ready to vote!" : `${submittedCount} submissions in. You can start voting now.`}
+                {submittedCount >= totalCount
+                  ? "Everyone's in — ready to vote!"
+                  : `${submittedCount} submissions in. Vote who cooked.`}
               </p>
               <button
                 onClick={onStartVoting}
@@ -757,6 +797,11 @@ function WritingView({
                 {isStartingVoting ? "Starting..." : "Start Voting →"}
               </button>
             </>
+          ) : isChallenge ? (
+            // Challenge link: not enough submissions yet — nudge to share
+            <p className="text-xs text-zinc-500">
+              Voting unlocks after 2 people submit. Share the link below.
+            </p>
           ) : isHost ? (
             <p className="text-xs text-zinc-600">
               Need at least 2 submissions to start voting.
@@ -767,6 +812,30 @@ function WritingView({
             </p>
           )}
         </div>
+
+        {/* Share card — always shown for challenge links; shown for group room host in lobby */}
+        {isChallenge && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <p className="text-xs text-zinc-500 font-black uppercase tracking-widest mb-1">
+              Send to Group Chat
+            </p>
+            <p className="text-zinc-400 text-xs leading-relaxed mb-3">
+              Friends write to the same beat and prompt. Then everyone votes who cooked.
+            </p>
+            <div className="bg-zinc-800 rounded-xl px-3 py-2.5 mb-3">
+              <p className="text-zinc-300 text-xs font-mono break-all">
+                {getRoomUrl(roomCode)}
+              </p>
+            </div>
+            <button
+              onClick={handleShareChallenge}
+              className="w-full bg-amber-400 text-zinc-950 font-black text-sm py-3 rounded-xl hover:bg-amber-300 active:scale-95 transition-all"
+            >
+              {shareCopied ? "✓ Link copied!" : "🔗 Send to Group Chat"}
+            </button>
+          </div>
+        )}
+
         <BeatPlayer beat={beat} />
       </div>
     );

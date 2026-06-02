@@ -87,6 +87,48 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 10 — 2026-06-01
+
+**Goal:** Remove host dependency for Challenge Link rooms. Any submitted participant can start voting once 2+ submissions exist.
+
+**What was done:**
+
+### `lib/types.ts`
+- Added `RoomMode = "CHALLENGE_LINK" | "GROUP_ROOM"` type
+- Added `roomMode: RoomMode` field to `RoomStateDTO` — stored at creation, returned by GET
+
+### `app/api/rooms/route.ts`
+- Sets `roomMode: "CHALLENGE_LINK"` when `source === "CHALLENGE_LINK"`, `roomMode: "GROUP_ROOM"` otherwise
+
+### `app/api/rooms/[roomCode]/start-voting/route.ts`
+- Rewritten authorization: reads `room.roomMode`
+- `CHALLENGE_LINK`: any joined participant who has submitted can start voting (403 if not submitted)
+- `GROUP_ROOM`: host-only (existing behavior preserved)
+- Both: require ≥ 2 submissions and WRITING state
+
+### `app/room/[roomCode]/page.tsx`
+- `WritingView` receives two new props: `roomMode` and `roomCode`
+- `canStartVoting` now computed per room mode: challenge = any submitted participant at 2+; group = host only at 2+
+- **Waiting state — Challenge Link:**
+  - When `submittedCount < 2`: shows share card with room URL, "Send to Group Chat" button, copy text "Think you can beat me?"
+  - When `submittedCount >= 2`: shows "Vote who cooked" prompt + "Start Voting →" button (to any submitted participant)
+- **Waiting state — Group Room:** unchanged (host-only "Start Voting →" at 2+ submissions)
+- `WritingJoinView` shows "challenged you" copy with beat info and "Write Your Bars →" CTA
+
+**TypeScript:** `pnpm tsc --noEmit` — clean.
+
+**Status after this session:**
+Challenge link rooms no longer depend on the creator staying active. Once a friend submits, either the creator or the friend can tap "Start Voting →". Group room host-only behavior is unchanged.
+
+**Next 5 tasks:**
+1. Connect PostgreSQL: `.env.local` → `pnpm db:push` → replace in-memory store
+2. Make BeatPlayer functional with a real audio file
+3. End-to-end QA: solo play → challenge friends → second window joins → both submit → friend starts voting → reveal
+4. Persist solo daily entries (so bars survive navigation before Challenge Friends)
+5. Voting reveal: show submitted participant names correctly in REVEAL state for challenge links
+
+---
+
 ## Session 9 — 2026-06-01
 
 **Goal:** Implement the Daily Play → Challenge Friends flow. Users write solo first, then optionally challenge friends. Remove the "create room before writing" friction from the primary path.

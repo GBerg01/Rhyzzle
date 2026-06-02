@@ -72,6 +72,8 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 | `DONE` | Challenge Friends creates room | POSTs `source: "CHALLENGE_LINK"`, room starts in WRITING, creator bars saved | `app/api/rooms/route.ts` |
 | `DONE` | Friends can join challenge link | WritingJoinView shown in WRITING+not-joined state; join → write bars | `app/room/[roomCode]/page.tsx` |
 | `DONE` | Copy Result on post-submit | Copies bars + share link to clipboard | `app/play/[barCount]/page.tsx` |
+| `DONE` | Challenge link voting open to all submitted | Any submitted participant can start voting; host-only for group rooms | `app/api/rooms/[roomCode]/start-voting/route.ts`, `app/room/[roomCode]/page.tsx` |
+| `DONE` | Share card in challenge link waiting state | Room URL + "Send to Group Chat" shown while waiting for 2nd submission | `app/room/[roomCode]/page.tsx` |
 | `TODO` | End-to-end QA | Solo play → challenge friends → friends join → write → vote → reveal | All |
 
 ---

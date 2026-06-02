@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRoom, updateRoom, getSubmissionsForRoom } from "@/lib/room-store";
+import { getRoom, updateRoom, getSubmissionsForRoom, hasParticipantSubmitted } from "@/lib/room-store";
 
 // POST /api/rooms/[roomCode]/start-voting
-// Host-only. Transitions room from WRITING → VOTING.
-// Requires at least 2 submissions to start voting.
+// Transitions room from WRITING → VOTING. Requires at least 2 submissions.
+//
+// Authorization rules:
+//   CHALLENGE_LINK rooms: any joined participant who has submitted can start voting.
+//   GROUP_ROOM (and default): host only.
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ roomCode: string }> }
@@ -22,16 +25,32 @@ export async function POST(
       return NextResponse.json({ error: "Room not found" }, { status: 404 });
     }
 
-    const participant = room.participants.find((p) => p.id === participantCookie);
-    if (!participant?.isHost) {
-      return NextResponse.json({ error: "Only the host can start voting" }, { status: 403 });
-    }
-
     if (room.status !== "WRITING") {
       return NextResponse.json(
         { error: `Room is in ${room.status} state, not WRITING` },
         { status: 400 }
       );
+    }
+
+    const participant = room.participants.find((p) => p.id === participantCookie);
+    if (!participant) {
+      return NextResponse.json({ error: "You are not in this room" }, { status: 403 });
+    }
+
+    if (room.roomMode === "CHALLENGE_LINK") {
+      // Any submitted participant can start voting on a challenge link
+      const submitted = hasParticipantSubmitted(upperCode, participantCookie);
+      if (!submitted) {
+        return NextResponse.json(
+          { error: "You must submit your bars before starting the vote" },
+          { status: 403 }
+        );
+      }
+    } else {
+      // GROUP_ROOM: host only
+      if (!participant.isHost) {
+        return NextResponse.json({ error: "Only the host can start voting" }, { status: 403 });
+      }
     }
 
     const submissions = getSubmissionsForRoom(upperCode);
