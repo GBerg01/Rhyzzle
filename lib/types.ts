@@ -151,9 +151,11 @@ export interface RoomStateDTO {
 
 export interface CreateRoomRequest {
   hostNickname: string;
-  // Daily challenge path (new primary flow)
-  source?: "DAILY_CHALLENGE";
+  // Daily challenge path (new primary flows)
+  source?: "DAILY_CHALLENGE" | "CHALLENGE_LINK";
   barCount?: 3 | 6 | 8;
+  // For CHALLENGE_LINK: creator's already-written bars, submitted immediately on room creation
+  submittedBars?: string[];
   // Legacy custom room path (beatId + challengeId)
   beatId?: string;
   challengeId?: string;

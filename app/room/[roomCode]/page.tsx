@@ -87,12 +87,12 @@ export default function RoomPage() {
     }
   }, [roomState?.currentParticipantHasVoted, hasVoted]);
 
-  // Initialize barLines array when room enters WRITING state
+  // Initialize barLines array when room enters WRITING state and user has joined
   useEffect(() => {
-    if (roomState?.status === "WRITING" && barLines.length === 0 && roomState.challenge) {
+    if (roomState?.status === "WRITING" && hasJoined && barLines.length === 0 && roomState.challenge) {
       setBarLines(Array(roomState.challenge.barCount).fill(""));
     }
-  }, [roomState?.status, roomState?.challenge?.barCount, barLines.length]);
+  }, [roomState?.status, roomState?.challenge?.barCount, barLines.length, hasJoined]);
 
   async function handleJoin() {
     if (!nickname.trim()) return;
@@ -221,11 +221,13 @@ export default function RoomPage() {
 
   async function handleShare() {
     const url = getRoomUrl(roomCode);
+    const challengerName = participants.find((p) => p.isHost)?.nickname ?? "Someone";
+    const shareText = `${challengerName} finished today's Rhyzzle. Think you can beat them? ${url}`;
     try {
       if (navigator.share) {
-        await navigator.share({ title: "Rhyzzle — join my room!", url });
+        await navigator.share({ title: "Rhyzzle challenge", text: shareText, url });
       } else {
-        await navigator.clipboard.writeText(url);
+        await navigator.clipboard.writeText(shareText);
         setCopied(true);
         setTimeout(() => setCopied(false), 2500);
       }
@@ -297,7 +299,7 @@ export default function RoomPage() {
             isJoining={isJoining}
             participants={participants}
             beatTitle={beat.title}
-            challengeTitle={challenge.title}
+            barCount={challenge.barCount}
           />
         )}
 
@@ -317,8 +319,21 @@ export default function RoomPage() {
           />
         )}
 
-        {/* ── WRITING ───────────────────────────────────────────────────────── */}
-        {status === "WRITING" && (
+        {/* ── WRITING: not joined yet — friend opening a challenge link ────── */}
+        {status === "WRITING" && !hasJoined && (
+          <WritingJoinView
+            hostNickname={participants.find((p) => p.isHost)?.nickname ?? null}
+            beat={beat}
+            challenge={challenge}
+            nickname={nickname}
+            setNickname={setNickname}
+            onJoin={handleJoin}
+            isJoining={isJoining}
+          />
+        )}
+
+        {/* ── WRITING: in the room ──────────────────────────────────────────── */}
+        {status === "WRITING" && hasJoined && (
           <WritingView
             beat={beat}
             challenge={challenge}
@@ -367,8 +382,8 @@ export default function RoomPage() {
             <div className="text-4xl mb-4">🏁</div>
             <h2 className="font-black text-xl mb-2">Room Closed</h2>
             <p className="text-zinc-500 text-sm mb-8">This room has ended.</p>
-            <Link href="/create" className="block bg-amber-400 text-zinc-950 font-black py-4 rounded-2xl">
-              Start a New Room
+            <Link href="/play" className="block bg-amber-400 text-zinc-950 font-black py-4 rounded-2xl">
+              Play Today&apos;s Rhyzzle
             </Link>
           </div>
         )}
@@ -401,7 +416,7 @@ function RoomStatusBadge({ status }: { status: string }) {
   );
 }
 
-// Shown to guests who haven't joined yet
+// Shown to guests who haven't joined yet (LOBBY state)
 function GuestJoinView({
   nickname,
   setNickname,
@@ -409,7 +424,7 @@ function GuestJoinView({
   isJoining,
   participants,
   beatTitle,
-  challengeTitle,
+  barCount,
 }: {
   nickname: string;
   setNickname: (v: string) => void;
@@ -417,14 +432,24 @@ function GuestJoinView({
   isJoining: boolean;
   participants: RoomStateDTO["participants"];
   beatTitle: string;
-  challengeTitle: string;
+  barCount: number;
 }) {
+  const hostName = participants.find((p) => p.isHost)?.nickname;
   return (
     <div className="space-y-6">
       <div className="text-center pt-4">
-        <h1 className="font-black text-3xl mb-2">Join the Room</h1>
+        {hostName ? (
+          <>
+            <p className="text-amber-400 text-xs font-black uppercase tracking-widest mb-2">
+              Group Room
+            </p>
+            <h1 className="font-black text-2xl mb-1">{hostName}&apos;s room</h1>
+          </>
+        ) : (
+          <h1 className="font-black text-2xl mb-2">Join the Room</h1>
+        )}
         <p className="text-zinc-500 text-sm">
-          {beatTitle} · {challengeTitle}
+          {beatTitle} · {barCount} bars
         </p>
       </div>
 
@@ -462,6 +487,84 @@ function GuestJoinView({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Shown to friends opening a challenge link (WRITING state, not yet joined)
+function WritingJoinView({
+  hostNickname,
+  beat,
+  challenge,
+  nickname,
+  setNickname,
+  onJoin,
+  isJoining,
+}: {
+  hostNickname: string | null;
+  beat: RoomStateDTO["beat"];
+  challenge: RoomStateDTO["challenge"];
+  nickname: string;
+  setNickname: (v: string) => void;
+  onJoin: () => void;
+  isJoining: boolean;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="text-center pt-4">
+        {hostNickname ? (
+          <>
+            <p className="text-amber-400 text-xs font-black uppercase tracking-widest mb-2">
+              Challenge
+            </p>
+            <h1 className="font-black text-2xl leading-tight mb-1">
+              {hostNickname} challenged you
+            </h1>
+            <p className="text-zinc-400 text-sm">
+              Same beat. Same prompt. {challenge.barCount} bars.
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className="font-black text-2xl mb-1">Today&apos;s Rhyzzle</h1>
+            <p className="text-zinc-400 text-sm">
+              {challenge.barCount} bars · Write your verse
+            </p>
+          </>
+        )}
+      </div>
+
+      {/* Beat info */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-lg flex-shrink-0">
+          🎵
+        </div>
+        <div>
+          <p className="text-white font-semibold text-sm">{beat.title}</p>
+          <p className="text-zinc-500 text-xs">{beat.bpm} BPM · {challenge.barCount} bars</p>
+        </div>
+      </div>
+
+      {/* Join form */}
+      <div className="space-y-3">
+        <input
+          type="text"
+          value={nickname}
+          onChange={(e) => setNickname(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onJoin()}
+          placeholder="Your name"
+          maxLength={20}
+          autoFocus
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-4 text-white placeholder-zinc-600 text-lg font-semibold focus:outline-none focus:border-amber-400 transition-colors"
+        />
+        <button
+          onClick={onJoin}
+          disabled={isJoining || !nickname.trim()}
+          className="w-full bg-amber-400 text-zinc-950 font-black text-lg py-4 rounded-2xl hover:bg-amber-300 active:scale-95 transition-all disabled:opacity-50"
+        >
+          {isJoining ? "Joining..." : "Write Your Bars →"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -528,8 +631,8 @@ function LobbyView({
         )}
       >
         {copied
-          ? "✓ Link copied!"
-          : `🔗 Invite friends — tap to copy link`}
+          ? "✓ Copied!"
+          : `🔗 Send to Group Chat`}
       </button>
 
       {/* Beat + challenge summary */}
@@ -974,10 +1077,10 @@ function RevealView({
           {copied ? "✓ Copied!" : "Share Results"}
         </button>
         <a
-          href="/create"
+          href="/play"
           className="block w-full bg-amber-400 text-zinc-950 font-black py-3.5 rounded-2xl text-center text-base hover:bg-amber-300 transition-all active:scale-95"
         >
-          Create New Room
+          Play Again →
         </a>
       </div>
     </div>

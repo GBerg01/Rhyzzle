@@ -1,33 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { CreateRoomRequest, CreateRoomResponse, RoomStateDTO } from "@/lib/types";
 import { generateRoomCode, generateSessionToken } from "@/lib/utils";
-import { saveRoom, roomExists } from "@/lib/room-store";
+import { saveRoom, roomExists, saveSubmission } from "@/lib/room-store";
 import { SAMPLE_BEATS, SAMPLE_CHALLENGES } from "@/lib/sample-data";
-import { DAILY_BEAT, getDailyVariant } from "@/lib/daily-challenge";
+import { DAILY_BEAT, getDailyVariant, variantToChallengeDTO } from "@/lib/daily-challenge";
 import type { DailyBarCount } from "@/lib/daily-challenge";
 
-// POST /api/rooms — create a room and auto-join the creator as host
+// POST /api/rooms — create a room and auto-join the creator as host.
+//
+// source: "DAILY_CHALLENGE" — group room from today's beat/prompt, starts in LOBBY
+// source: "CHALLENGE_LINK"  — solo-play challenge, starts in WRITING, creator bars submitted
+// (none)                    — legacy custom room with beatId + challengeId
 export async function POST(req: NextRequest) {
   try {
     const body: CreateRoomRequest = await req.json();
 
     if (!body.hostNickname?.trim()) {
-      return NextResponse.json(
-        { error: "hostNickname is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "hostNickname is required" }, { status: 400 });
     }
 
     let beat: RoomStateDTO["beat"];
     let challenge: RoomStateDTO["challenge"];
+    let initialStatus: RoomStateDTO["status"] = "LOBBY";
 
-    if (body.source === "DAILY_CHALLENGE") {
+    if (body.source === "DAILY_CHALLENGE" || body.source === "CHALLENGE_LINK") {
       const barCount = (body.barCount ?? 6) as DailyBarCount;
       if (![3, 6, 8].includes(barCount)) {
         return NextResponse.json({ error: "barCount must be 3, 6, or 8" }, { status: 400 });
       }
 
       const variant = getDailyVariant(barCount);
+      const challengeDTO = variantToChallengeDTO(variant);
+
       beat = {
         id: DAILY_BEAT.id,
         title: DAILY_BEAT.title,
@@ -39,27 +43,12 @@ export async function POST(req: NextRequest) {
         coverUrl: DAILY_BEAT.coverUrl,
         tags: DAILY_BEAT.tags,
       };
-      challenge = {
-        id: variant.id,
-        title: variant.title,
-        description: variant.description,
-        barCount: variant.barCount,
-        rules: variant.rules.map((r, i) => ({
-          id: `${variant.id}_rule_${i}`,
-          type: r.type,
-          lineIndex: r.lineIndex ?? null,
-          targetLine: r.targetLine ?? null,
-          rhymeScheme: r.rhymeScheme ?? null,
-          theme: r.theme ?? null,
-          description: r.description,
-          sortOrder: i,
-        })),
-        requiredWords: variant.requiredWords.map((w, i) => ({
-          id: `${variant.id}_word_${i}`,
-          word: w,
-          sortOrder: i,
-        })),
-      };
+      challenge = challengeDTO;
+
+      // Challenge links skip LOBBY — they start in WRITING (creator already has bars)
+      if (body.source === "CHALLENGE_LINK") {
+        initialStatus = "WRITING";
+      }
     } else {
       // Legacy custom room path
       if (!body.beatId || !body.challengeId) {
@@ -126,26 +115,29 @@ export async function POST(req: NextRequest) {
     const hostSessionToken = generateSessionToken();
     const hostNickname = body.hostNickname.trim().slice(0, 20);
 
+    // For challenge links, the creator has already submitted — mark them immediately
+    const isChallengeLinkCreator = body.source === "CHALLENGE_LINK";
+
     const hostParticipant = {
       id: hostParticipantId,
       nickname: hostNickname,
       isHost: true,
       joinedAt: new Date().toISOString(),
-      hasSubmitted: false,
+      hasSubmitted: isChallengeLinkCreator,
     };
 
     const roomState: RoomStateDTO = {
       id: roomId,
       roomCode,
       name: body.name ?? null,
-      status: "LOBBY",
+      status: initialStatus,
       privacy: body.privacy ?? "PRIVATE",
       votingMode: "ANONYMOUS",
       deadline: body.deadline ?? null,
       beat,
       challenge,
       participants: [hostParticipant],
-      submittedCount: 0,
+      submittedCount: isChallengeLinkCreator ? 1 : 0,
       totalCount: 1,
       isHost: false,                        // always false in stored state; GET sets this per-requester
       currentParticipantId: null,           // always null in stored state; GET sets this per-requester
@@ -156,7 +148,22 @@ export async function POST(req: NextRequest) {
 
     saveRoom(roomCode, roomState);
 
-    console.log(`[POST /api/rooms] Created ${roomCode} — host: ${hostNickname} source: ${body.source ?? "custom"}`);
+    // For challenge links: immediately save the creator's bars as a submission
+    if (isChallengeLinkCreator && Array.isArray(body.submittedBars) && body.submittedBars.length > 0) {
+      const submittedLines = body.submittedBars.filter((l) => l.trim().length > 0);
+      saveSubmission({
+        submissionId: `sub_${roomCode}_${Date.now()}`,
+        participantId: hostParticipantId,
+        roomCode,
+        lines: submittedLines,
+        rawText: submittedLines.join("\n"),
+        submittedAt: new Date().toISOString(),
+      });
+    }
+
+    console.log(
+      `[POST /api/rooms] Created ${roomCode} — host: ${hostNickname} source: ${body.source ?? "custom"} status: ${initialStatus}`
+    );
 
     const response: CreateRoomResponse = { roomCode, roomId, hostParticipantId };
     const nextResponse = NextResponse.json(response, { status: 201 });

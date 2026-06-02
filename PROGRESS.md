@@ -87,6 +87,66 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 9 — 2026-06-01
+
+**Goal:** Implement the Daily Play → Challenge Friends flow. Users write solo first, then optionally challenge friends. Remove the "create room before writing" friction from the primary path.
+
+**What was done:**
+
+### `lib/daily-challenge.ts`
+- Added `variantToChallengeDTO(variant)` — converts `DailyChallengeVariant` → `ChallengeDTO` (the shape used by `LyricPuzzleCanvas` and the room store). Used by both the solo daily play page and the API.
+
+### `lib/types.ts`
+- `CreateRoomRequest.source` — added `"CHALLENGE_LINK"` as a valid value (alongside `"DAILY_CHALLENGE"`)
+- `CreateRoomRequest.submittedBars?: string[]` — new field: creator's already-written bars, saved as their first submission when a CHALLENGE_LINK room is created
+
+### `app/api/rooms/route.ts`
+- `source: "CHALLENGE_LINK"` path: creates room with `status: "WRITING"` (skips LOBBY), marks host as `hasSubmitted: true`, sets `submittedCount: 1`, and immediately calls `saveSubmission()` with the creator's bars. Challenge link rooms start ready for friends to join and write.
+- `source: "DAILY_CHALLENGE"` path: unchanged — creates room in LOBBY state
+- Legacy `beatId`/`challengeId` path: unchanged
+
+### `app/play/page.tsx`
+- Mode cards (3/6/8) now link to `/play/N` instead of `/create?barCount=N`
+
+### `app/play/[barCount]/page.tsx` — **new file**
+- Solo daily writing experience. No account or room required.
+- Validates `barCount` param (must be 3, 6, or 8)
+- Uses `getDailyVariant(barCount)` + `variantToChallengeDTO()` to build the `ChallengeDTO`
+- Shows `BeatPlayer` (today's beat) + `LyricPuzzleCanvas` (full puzzle board with rule chips)
+- Sticky "Submit Bars 🔥" button — disabled until all bars are filled
+- On submit: transitions to post-submit screen (no API call for solo play)
+- **Post-submit screen:**
+  - Shows submitted bars preview
+  - Name input field (required for Challenge Friends)
+  - **Primary CTA:** "Challenge Friends →" — POSTs `source: "CHALLENGE_LINK"` to API, redirects to `/room/[roomCode]`
+  - **Secondary:** "Copy Result" — copies bars + share link to clipboard
+  - **Secondary:** "Start Group Room" — links to `/create?barCount=N`
+  - **Secondary:** "← Back Home"
+
+### `app/room/[roomCode]/page.tsx`
+- **WRITING + not-joined gate (new):** When `status === "WRITING"` and `!hasJoined`, renders `WritingJoinView` instead of `WritingView`. Enables friends to join a challenge link room directly in WRITING state.
+- **`WritingJoinView` (new component):** Shows challenger's name ("Grayson challenged you"), beat info, name input, "Write Your Bars →" CTA. Falls back to generic copy if no host name.
+- **`GuestJoinView` props updated:** `challengeTitle` → `barCount` (more useful display). Shows host's name when available.
+- **`handleShare` updated:** Share text now reads "Grayson finished today's Rhyzzle. Think you can beat them?" — challenge framing, not room management.
+- **LobbyView share button:** "Send to Group Chat" (was "Invite friends — tap to copy link")
+- **CLOSED state + RevealView CTAs:** Now link to `/play` ("Play Today's Rhyzzle" / "Play Again →") instead of `/create`
+- **barLines init `useEffect`:** Now requires `hasJoined` to prevent initializing the writing state for un-joined friends
+
+**TypeScript:** `pnpm tsc --noEmit` — clean, no errors.
+**Routes:** All three routes (/, /play, /play/6) return 200.
+
+**Status after this session:**
+Full daily-first flow is working. User can go Home → Play Today → pick 3/6/8 → write bars solo → submit → challenge friends (creates CHALLENGE_LINK room, submits their bars immediately) → friends open link → join with name → write bars → host starts voting → reveal. Start Group Room still works as a secondary path from both Home and the post-submit screen.
+
+**Next 5 tasks:**
+1. Connect PostgreSQL: `.env.local` → `pnpm db:push` → `pnpm db:seed`
+2. Replace in-memory stores with Prisma (rooms, submissions, votes)
+3. Make BeatPlayer functional with real audio
+4. End-to-end QA: solo play → challenge friends → 2+ friends join → write → vote → reveal
+5. CLOSED state / "Play Again" flow
+
+---
+
 ## Session 8 — 2026-06-01
 
 **Goal:** Make rule chips in the puzzle board interactive — tapping opens a help sheet with definition, example, and tip.

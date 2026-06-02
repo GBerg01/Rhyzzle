@@ -164,6 +164,36 @@ export function getDailyVariant(barCount: DailyBarCount): DailyChallengeVariant 
   return DAILY_VARIANTS[barCount];
 }
 
+// ─── Conversion helper ────────────────────────────────────────────────────────
+// Converts a DailyChallengeVariant into the ChallengeDTO shape used by
+// LyricPuzzleCanvas, the room API, and the room store.
+
+import type { ChallengeDTO } from "./types";
+
+export function variantToChallengeDTO(variant: DailyChallengeVariant): ChallengeDTO {
+  return {
+    id: variant.id,
+    title: variant.title,
+    description: variant.description,
+    barCount: variant.barCount,
+    rules: variant.rules.map((r, i) => ({
+      id: `${variant.id}_rule_${i}`,
+      type: r.type,
+      lineIndex: r.lineIndex ?? null,
+      targetLine: r.targetLine ?? null,
+      rhymeScheme: r.rhymeScheme ?? null,
+      theme: r.theme ?? null,
+      description: r.description,
+      sortOrder: i,
+    })),
+    requiredWords: variant.requiredWords.map((w, i) => ({
+      id: `${variant.id}_word_${i}`,
+      word: w,
+      sortOrder: i,
+    })),
+  };
+}
+
 // ─── Mode metadata (used on /play and /create) ────────────────────────────────
 
 export const DAILY_MODES: Array<{

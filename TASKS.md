@@ -61,7 +61,22 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 
 ---
 
-## Phase 3: Rhyzzle Daily
+## Phase 2.6: Daily Play → Challenge Friends Flow
+
+| Status | Task | Acceptance Criteria | Files |
+|---|---|---|---|
+| `DONE` | Centralized daily challenge data | `lib/daily-challenge.ts` exports beat, prompt, required words, 3/6/8 variants | `lib/daily-challenge.ts` |
+| `DONE` | Home page shows today's challenge | Beat card, prompt, required words visible; "Play Today" primary CTA | `app/page.tsx` |
+| `DONE` | `/play` mode picker | 3/6/8 cards with scheme preview link to `/play/N` | `app/play/page.tsx` |
+| `DONE` | `/play/[barCount]` solo writing | BeatPlayer + LyricPuzzleCanvas, no room required, post-submit screen | `app/play/[barCount]/page.tsx` |
+| `DONE` | Challenge Friends creates room | POSTs `source: "CHALLENGE_LINK"`, room starts in WRITING, creator bars saved | `app/api/rooms/route.ts` |
+| `DONE` | Friends can join challenge link | WritingJoinView shown in WRITING+not-joined state; join → write bars | `app/room/[roomCode]/page.tsx` |
+| `DONE` | Copy Result on post-submit | Copies bars + share link to clipboard | `app/play/[barCount]/page.tsx` |
+| `TODO` | End-to-end QA | Solo play → challenge friends → friends join → write → vote → reveal | All |
+
+---
+
+## Phase 3: Rhyzzle Daily (Public Feed)
 
 | Status | Task | Acceptance Criteria | Files |
 |---|---|---|---|

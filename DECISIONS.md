@@ -206,6 +206,30 @@ Format:
 
 ---
 
+## 2026-06-01 — Daily Play first, Challenge Friends second, Group Room third
+
+**Decision:** The primary product flow is: write solo → challenge friends → group rooms are secondary. Users are not forced to create a room or join a group before writing.
+
+**Reason:** Forcing room creation before writing added unnecessary friction. The product feels like a daily puzzle (Wordle model), not an event-planning tool. The new hierarchy: (1) Daily Entry — personal attempt, no room required; (2) Challenge Link — lightweight temporary room created after submitting, seeded with the creator's bars; (3) Group Room — recurring crew, secondary path from Home and post-submit screen.
+
+**Tradeoffs:** Solo daily entries are client-side only for MVP (no server persistence, lost on navigate). The bars are preserved in React state until the user creates a Challenge Link. If the user navigates away before challenging friends, bars are lost. Acceptable for MVP — the product flow validation matters more than perfect persistence.
+
+**How to apply:** `/play/[barCount]` is the solo daily writing page. On submit, post-submit screen offers Challenge Friends (creates `CHALLENGE_LINK` room), Copy Result, Start Group Room, Back Home. `/create` remains available as the "Start Group Room" secondary flow.
+
+---
+
+## 2026-06-01 — CHALLENGE_LINK rooms start in WRITING, not LOBBY
+
+**Decision:** When a user creates a Challenge Link (after solo play), the room is created with `status: "WRITING"`, not `"LOBBY"`. The creator's bars are immediately saved as a submission.
+
+**Reason:** The creator has already written their bars. Sending them into a LOBBY where they'd have to click "Start Game" is confusing and adds friction. Starting in WRITING state communicates "I'm waiting for you to write" rather than "we're setting up a game."
+
+**Tradeoffs:** The host cannot add more participants before starting — the game is open immediately. Friends who open the link join directly into the writing phase. The host (creator) lands on the "Bars submitted! Waiting for friends" state and can start voting once enough submissions are in. If the host closes their browser, nobody can start voting (same host-dependency limitation as group rooms — documented as known limitation for MVP).
+
+**How to apply:** `POST /api/rooms` with `source: "CHALLENGE_LINK"` sets `status: "WRITING"`, calls `saveSubmission()` immediately, marks host `hasSubmitted: true`. Room page: when `status === "WRITING"` and `!hasJoined`, shows `WritingJoinView` (join form with challenger's name) instead of `WritingView`.
+
+---
+
 ## 2026-06-01 — Tailwind CSS only (no styled-components, no CSS modules)
 
 **Decision:** Style everything with Tailwind CSS utility classes. Use shadcn/ui selectively for complex components (modals, selects) by copying component code.

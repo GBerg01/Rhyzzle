@@ -73,7 +73,7 @@ export default function PlayPage() {
           {DAILY_MODES.map((mode) => (
             <Link
               key={mode.barCount}
-              href={`/create?barCount=${mode.barCount}`}
+              href={`/play/${mode.barCount}`}
               className="block bg-zinc-900 border border-zinc-800 rounded-2xl p-5 hover:border-amber-400/60 active:scale-[0.98] transition-all group"
             >
               <div className="flex items-start justify-between">
