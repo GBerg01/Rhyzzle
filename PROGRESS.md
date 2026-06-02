@@ -87,6 +87,73 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 11 — 2026-06-01
+
+**Goal:** Replace the state-machine voting model for Challenge Links with a "live all day, locks at 9 PM" timing model.
+
+**Key product correction:** Challenge Links should never require a manual "Start Voting" step. Submissions and voting are open from room creation until `locksAt`. Votes can be changed before lock. Final results appear automatically after lock.
+
+**What was done:**
+
+### `lib/utils.ts`
+- Added `getDefaultLocksAt()` — returns next 9 PM as ISO timestamp. If 9 PM has already passed today, returns tomorrow 9 PM. Uses Node.js process timezone (set `TZ` env var for consistent server behavior).
+
+### `lib/types.ts`
+- Added `locksAt: string | null` to `RoomStateDTO` — ISO timestamp stored at creation; null for GROUP_ROOM.
+- Added `isLocked: boolean` — always `false` in stored state; GET recomputes dynamically from `locksAt`.
+- Added `currentParticipantVotedForId: string | null` — which submissionId this participant voted for; null in stored state; GET computes per-requester. Enables vote-change UI.
+
+### `lib/room-store.ts`
+- Added `getVoteForParticipant(roomCode, participantId)` — returns the participant's current vote (for `currentParticipantVotedForId`).
+
+### `app/api/rooms/route.ts`
+- For CHALLENGE_LINK: imports and calls `getDefaultLocksAt()`, stores as `locksAt` in room state.
+- Initializes `isLocked: false` and `currentParticipantVotedForId: null` in stored state.
+
+### `app/api/rooms/[roomCode]/route.ts` (GET)
+- Computes `isLocked = Date.now() >= new Date(locksAt)` for CHALLENGE_LINK rooms.
+- Computes `currentParticipantVotedForId` from vote store.
+- For CHALLENGE_LINK: always builds `submissions` (regardless of room status), anonymous before lock, named + vote counts after lock, winner marked after lock.
+- GROUP_ROOM submission building unchanged (VOTING/REVEAL states).
+
+### `app/api/rooms/[roomCode]/submit/route.ts`
+- For CHALLENGE_LINK: checks `isLocked` instead of `status === "WRITING"`. Error: "Today's Rhyzzle is locked. Final results are live."
+- For GROUP_ROOM: unchanged (status check preserved).
+
+### `app/api/rooms/[roomCode]/vote/route.ts`
+- For CHALLENGE_LINK: checks `isLocked`; removes double-vote 409 (votes can be changed — `saveVote` overwrites same key).
+- For GROUP_ROOM: unchanged (status check + double-vote prevention preserved).
+
+### `app/api/rooms/[roomCode]/start-voting/route.ts`
+- For CHALLENGE_LINK: returns graceful 200 message "Challenge Links are live all day."
+- For GROUP_ROOM: host-only state transition preserved.
+
+### `app/room/[roomCode]/page.tsx`
+- Added `formatLockTime(locksAt)` helper — formats ISO timestamp to "9 PM" / "8:30 PM" in browser local time.
+- Added `currentParticipantVotedForId` hydration effect — initializes `selectedSubmissionId` on page load from server.
+- Main render: CHALLENGE_LINK rooms route to `ChallengeLinkView`; GROUP_ROOM uses existing state machine.
+- **Removed:** `WritingJoinView`, `VotingLateJoinView` (replaced by new components).
+- **Simplified:** `LateArrivalView` — now GROUP_ROOM only, no `roomMode` prop.
+- **New:** `ChallengeLinkView` — wrapper routing `isLocked → ChallengeFinalView`, `!hasJoined → ChallengeLinkJoinView`, `!hasSubmitted → writing board`, `hasSubmitted → ChallengeLiveView`.
+- **New:** `ChallengeLinkJoinView` — "Submit and vote before 9 PM" join form.
+- **New:** `ChallengeLiveView` — post-submit view: live status card, anonymous voting cards, "Cast Vote" / "Change Vote →", "Votes can change until results lock" note, share card.
+- **New:** `ChallengeFinalView` — final results after lock: winner, ranked submissions with names + vote counts, "Play Today's Rhyzzle →", "Start New Challenge" CTAs.
+- Nav badge: "Live" (green pulse) / "Locked" (grey) for CHALLENGE_LINK; existing status badge for GROUP_ROOM.
+
+**TypeScript:** `pnpm tsc --noEmit` — clean, no errors.
+
+**Status after this session:**
+Challenge Links are now live all day. Creator sends link → friends join any time → write bars any time → vote any time → vote can be changed before 9 PM → final results show automatically after lock. No "Start Voting" button. No host dependency. Group Rooms are completely unchanged.
+
+**Next 5 tasks:**
+1. End-to-end QA: solo play → challenge friends → friend joins → both write → vote + change vote → verify final results after lock
+2. Connect PostgreSQL: `.env.local` → `pnpm db:push` → replace in-memory store with Prisma
+3. Make BeatPlayer functional with real audio file
+4. Persist solo daily entries server-side (bars currently lost on navigate before Challenge Friends)
+5. Test GROUP_ROOM flow end-to-end to verify state machine still works
+
+---
+
 ## Session 10 — 2026-06-01
 
 **Goal:** Remove host dependency for Challenge Link rooms. Any submitted participant can start voting once 2+ submissions exist.

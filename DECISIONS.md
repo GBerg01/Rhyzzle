@@ -228,6 +228,28 @@ Format:
 
 ---
 
+## 2026-06-01 — Challenge Link timing model: live all day, locks at 9 PM
+
+**Decision:** Challenge Link rooms do not use the WRITING → VOTING → REVEAL state machine. Instead, they use a `locksAt` timestamp (9 PM today, or tomorrow 9 PM if already past). Submissions and voting are open simultaneously from room creation until `locksAt`. After `locksAt`, everything locks and final results are shown automatically. No manual "Start Voting" step. No host dependency.
+
+**Reason:** The state-machine model (WRITING → VOTING → REVEAL) was designed for synchronous group rooms where everyone is present at the same time. Challenge Links are asynchronous — people open the link hours apart. Forcing someone to "Start Voting" is a host-dependency problem: if the creator closes their browser, nobody can advance the room. The daily puzzle model (Wordle, NYT games) works because anyone can play at any time and results reveal at a fixed cutoff.
+
+**How it works:**
+- `locksAt` is set at room creation via `getDefaultLocksAt()` (next 9 PM in server timezone).
+- `isLocked` is computed at every GET: `Date.now() >= new Date(locksAt).getTime()`.
+- Submit API: CHALLENGE_LINK checks `isLocked` instead of `status === "WRITING"`.
+- Vote API: CHALLENGE_LINK checks `isLocked`; removes double-vote check (votes can be changed by overwriting).
+- `currentParticipantVotedForId` enables the client to show which submission the user already voted for.
+- GROUP_ROOM: state machine completely unchanged.
+
+**Vote changing:** For CHALLENGE_LINK, votes can be changed until `locksAt`. The vote store uses `ROOMCODE:participantId` as key — `saveVote` naturally overwrites. The UI shows "Change Vote →" when `hasVoted = true`. This prevents early votes from being "wasted" when better submissions arrive later.
+
+**Timezone limitation:** `getDefaultLocksAt()` uses the Node.js server process timezone. Set `TZ=America/New_York` (or equivalent) in production `.env`. The client displays the time in the user's local browser timezone via `new Date(locksAt)`, which will show the correct local equivalent.
+
+**Tradeoffs:** CHALLENGE_LINK rooms stay in `status: "WRITING"` forever in the store (no state transition). `isLocked` is always recomputed at GET time. This means the room store's `status` field is meaningless for CHALLENGE_LINK — only `locksAt` matters. When PostgreSQL is connected, consider adding a computed `isLocked` column or always deriving it at query time.
+
+---
+
 ## 2026-06-01 — CHALLENGE_LINK rooms start in WRITING, not LOBBY
 
 **Decision:** When a user creates a Challenge Link (after solo play), the room is created with `status: "WRITING"`, not `"LOBBY"`. The creator's bars are immediately saved as a submission.

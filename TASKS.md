@@ -69,12 +69,12 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 | `DONE` | Home page shows today's challenge | Beat card, prompt, required words visible; "Play Today" primary CTA | `app/page.tsx` |
 | `DONE` | `/play` mode picker | 3/6/8 cards with scheme preview link to `/play/N` | `app/play/page.tsx` |
 | `DONE` | `/play/[barCount]` solo writing | BeatPlayer + LyricPuzzleCanvas, no room required, post-submit screen | `app/play/[barCount]/page.tsx` |
-| `DONE` | Challenge Friends creates room | POSTs `source: "CHALLENGE_LINK"`, room starts in WRITING, creator bars saved | `app/api/rooms/route.ts` |
-| `DONE` | Friends can join challenge link | WritingJoinView shown in WRITING+not-joined state; join → write bars | `app/room/[roomCode]/page.tsx` |
+| `DONE` | Challenge Friends creates room | POSTs `source: "CHALLENGE_LINK"`, room created with locksAt (9 PM), creator bars saved | `app/api/rooms/route.ts` |
+| `DONE` | Challenge Link live-all-day timing model | Submissions + voting open until locksAt; no state machine; vote changes allowed; final results after lock | `lib/types.ts`, `lib/utils.ts`, `app/api/rooms/*`, `app/room/[roomCode]/page.tsx` |
+| `DONE` | Friends can join challenge link | ChallengeLinkJoinView shown; join → write bars | `app/room/[roomCode]/page.tsx` |
 | `DONE` | Copy Result on post-submit | Copies bars + share link to clipboard | `app/play/[barCount]/page.tsx` |
-| `DONE` | Challenge link voting open to all submitted | Any submitted participant can start voting; host-only for group rooms | `app/api/rooms/[roomCode]/start-voting/route.ts`, `app/room/[roomCode]/page.tsx` |
-| `DONE` | Share card in challenge link waiting state | Room URL + "Send to Group Chat" shown while waiting for 2nd submission | `app/room/[roomCode]/page.tsx` |
-| `TODO` | End-to-end QA | Solo play → challenge friends → friends join → write → vote → reveal | All |
+| `DONE` | Share card in challenge link live state | Room URL + "Send to Group Chat" shown after submitting | `app/room/[roomCode]/page.tsx` |
+| `TODO` | End-to-end QA | Solo play → challenge friends → friends join → write → vote → final results | All |
 
 ---
 
