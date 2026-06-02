@@ -87,6 +87,66 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 16 — 2026-06-02
+
+**Goal:** Phase 5A.2 — add live editor indicators to LyricPuzzleCanvas. As the user writes bars, the canvas shows lightweight in-editor guidance without blocking submission or calling AI.
+
+**What was done:**
+
+### `lib/rule-checks/live-checks.ts` (new)
+- `LineStatus = "empty" | "in_progress" | "looks_good" | "needs_review"`
+- `LineHint` — per-line: ruleHint string, rhymeHint string, isSubjectiveRule flag, status
+- `RequiredWordStatus` — per-required-word: found/missing
+- `LiveCheckState` — requiredWords + lineHints arrays
+- `runLiveChecks(lines, challenge) → LiveCheckState` — pure client-safe function:
+  - Required words: per-word whole-word regex scan across all lines
+  - Effective rule per line: same priority logic as `buildMeta` (reuses `RULE_PRI`)
+  - Alliteration: calls `checkAlliteration` → "3 words on 'S' ✓" or "Try more same-starting words"
+  - Metaphor: calls `checkMetaphor` → "Pattern detected" or falls back to `isSubjectiveRule = true`
+  - Subjective rules (punchline, callback, assonance, internal rhyme): `isSubjectiveRule = true`
+  - Chain rhyme: calls `checkChainRhyme` once partner line has text
+  - Theme reference: calls `checkThemeReference`
+  - Rhyme hint: finds partner line (same scheme letter) with text, calls `checkEndRhymePair` → "Rhyme connected ✓" or "Connect to 'word'"
+  - All logic reuses existing deterministic/ai-placeholder check functions — zero duplication
+
+### `components/lyric-puzzle-canvas.tsx`
+- Imports `runLiveChecks` + `LiveCheckState` from `lib/rule-checks/live-checks`
+- `useState` initialized with `runLiveChecks(lines, challenge)` — correct state from mount
+- `useEffect` debounced 300ms: recomputes `liveState` when `lines` changes
+- **Required word chips**: updated to show `✓ word` in green when found, amber when missing — live, no page reload
+- **Per-row chip row**: adds live status indicator text after chip/rhyme link:
+  - `ruleHint` shown in green (looks_good) or amber (needs_review)
+  - "→ submit" italic zinc label when `isSubjectiveRule` and no other hint
+  - Nothing shown on empty lines (no clutter)
+- **Below input**: `rhymeHint` line in green (connected) or amber (not yet) — only appears once partner line has text
+- **Guidance note** below canvas: `"Live hints are guides. Humans still vote who cooked."`
+
+**TypeScript:** `pnpm tsc --noEmit` — clean, zero errors.
+
+**Checks that run client-side (live):**
+- Required word scan (deterministic, fast)
+- Alliteration detection (heuristic, ~0.85 confidence)
+- Metaphor pattern matching (heuristic, ~0.65 confidence)
+- Chain rhyme (heuristic, ~0.8 confidence)
+- Theme reference (keyword match, ~0.7 confidence)
+- End rhyme pair (heuristic vowel-nucleus, ~0.8 confidence)
+
+**Checks that wait until submit (server-side):**
+- Punchline — too subjective for local heuristic
+- Callback — requires semantic comparison, marked NEEDS_REVIEW
+- Assonance — requires phonetic analysis, marked NEEDS_REVIEW
+- Internal rhyme — weak heuristic only, full check on server
+- HighlightSpan storage — always server-side (Prisma writes)
+- ConstraintResult storage — always server-side
+
+**Key constraints honored:**
+- No AI calls while typing
+- No blocking of submission
+- No false certainty for subjective rules
+- Ranked voting flow untouched
+
+---
+
 ## Session 15 — 2026-06-02
 
 **Goal:** Build the Phase 5 constraint engine + lyric highlight rendering system. Run rule checks on submission and display colored highlights in SubmissionPatternCard.

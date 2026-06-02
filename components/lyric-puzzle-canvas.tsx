@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { ChallengeDTO } from "@/lib/types";
 import type { RuleHelpKey } from "@/lib/rule-help";
 import { RuleHelpSheet } from "@/components/rule-help-sheet";
 import { buildMeta, C, letterColor } from "@/lib/lyric-meta";
+import { runLiveChecks, type LiveCheckState } from "@/lib/rule-checks/live-checks";
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,19 @@ export function LyricPuzzleCanvas({
 }: LyricPuzzleCanvasProps) {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [activeHelpKey, setActiveHelpKey] = useState<RuleHelpKey | null>(null);
+
+  // Live check state — debounced 300ms so it doesn't fire on every keystroke
+  const [liveState, setLiveState] = useState<LiveCheckState>(() =>
+    runLiveChecks(lines, challenge),
+  );
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLiveState(runLiveChecks(lines, challenge));
+    }, 300);
+    return () => clearTimeout(timer);
+  // challenge is stable for the lifetime of a writing session
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines]);
 
   const meta = buildMeta(challenge);
   const scheme = meta.map((m) => m.schemeLetter);
@@ -69,21 +83,27 @@ export function LyricPuzzleCanvas({
         })}
       </div>
 
-      {/* Required words */}
+      {/* Required words — live found/missing state */}
       {challenge.requiredWords.length > 0 && (
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
             Required:
           </span>
-          {challenge.requiredWords.map((rw) => (
+          {liveState.requiredWords.map((rw) => (
             <button
-              key={rw.id}
+              key={rw.word}
               type="button"
               onClick={(e) => openHelp("REQUIRED_WORD", e)}
-              className="text-xs font-mono font-black uppercase tracking-wide text-amber-900 bg-amber-300 border border-amber-400/60 px-2.5 py-0.5 rounded-full active:scale-95 transition-transform cursor-pointer"
               title="Tap for help"
+              className={cn(
+                "text-xs font-mono font-black uppercase tracking-wide px-2.5 py-0.5 rounded-full",
+                "border active:scale-95 transition-all duration-200 cursor-pointer",
+                rw.found
+                  ? "text-green-800 bg-green-100 border-green-300"
+                  : "text-amber-900 bg-amber-300 border-amber-400/60",
+              )}
             >
-              {rw.word} ?
+              {rw.found ? `${rw.word} ✓` : rw.word}
             </button>
           ))}
         </div>
@@ -102,6 +122,7 @@ export function LyricPuzzleCanvas({
           const value = lines[i] ?? "";
           const isEmpty = value.trim().length === 0;
           const col = C[m.chip.color];
+          const hint = liveState.lineHints[i];
 
           return (
             <div
@@ -133,9 +154,9 @@ export function LyricPuzzleCanvas({
                 </span>
               </div>
 
-              {/* Content: chip + input */}
+              {/* Content: chip + input + hints */}
               <div className="flex-1 flex flex-col justify-center gap-1 px-3 py-2.5 min-w-0">
-                {/* Rule chip — tappable for help */}
+                {/* Rule chip row — chip, rhyme link, live status indicator */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     type="button"
@@ -149,10 +170,34 @@ export function LyricPuzzleCanvas({
                   >
                     {m.chip.label} ?
                   </button>
+
                   {m.rhymesWithLine !== null && (
                     <span className="text-[10px] text-zinc-400 font-mono font-semibold leading-none">
                       ↔ line {m.rhymesWithLine + 1}
                     </span>
+                  )}
+
+                  {/* Live status indicator — only shown when line has content */}
+                  {hint && hint.status !== "empty" && (
+                    <>
+                      {hint.ruleHint && (
+                        <span
+                          className={cn(
+                            "text-[10px] font-semibold leading-none",
+                            hint.status === "looks_good"
+                              ? "text-green-700"
+                              : "text-amber-600",
+                          )}
+                        >
+                          {hint.ruleHint}
+                        </span>
+                      )}
+                      {hint.isSubjectiveRule && !hint.ruleHint && (
+                        <span className="text-[10px] text-zinc-400 italic leading-none">
+                          → submit
+                        </span>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -174,12 +219,26 @@ export function LyricPuzzleCanvas({
                   autoCorrect="off"
                   spellCheck={false}
                 />
+
+                {/* Rhyme hint — shown below input once partner line has text */}
+                {hint?.rhymeHint && (
+                  <span
+                    className={cn(
+                      "text-[10px] font-medium leading-none",
+                      hint.status === "looks_good" || hint.rhymeHint.endsWith("✓")
+                        ? "text-green-600"
+                        : "text-amber-500",
+                    )}
+                  >
+                    {hint.rhymeHint}
+                  </span>
+                )}
               </div>
             </div>
           );
         })}
 
-        {/* Footer: progress dots */}
+        {/* Footer: progress dots + bar count */}
         <div className="border-t border-zinc-100 bg-zinc-50 px-4 py-2.5 flex items-center justify-between">
           <div className="flex items-center gap-1">
             {Array.from({ length: challenge.barCount }, (_, i) => (
@@ -197,6 +256,11 @@ export function LyricPuzzleCanvas({
           </span>
         </div>
       </div>
+
+      {/* Guidance note */}
+      <p className="text-[10px] text-zinc-500 text-center mt-2 leading-relaxed">
+        Live hints are guides. Humans still vote who cooked.
+      </p>
 
       {/* Rule help bottom sheet */}
       <RuleHelpSheet

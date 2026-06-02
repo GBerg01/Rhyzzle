@@ -124,7 +124,7 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 | `DONE` | Highlight span detection (end rhyme, required words, alliteration, etc.) | HighlightSpan rows created for all detected patterns | `lib/rule-checks/deterministic.ts` |
 | `DONE` | Highlight rendering in submission display | All 10 color categories rendering in SubmissionPatternCard | `components/highlighted-text.tsx`, `components/submission-pattern-card.tsx` |
 | `DONE` | Highlight spans returned by GET API | Spans included in SubmissionDTO for VOTING/REVEAL/CHALLENGE_LINK | `app/api/rooms/[roomCode]/route.ts` |
-| `TODO` | Constraint failure indicators in editor | Live indicators while user types (requires real-time check) | `components/bar-editor.tsx` |
+| `DONE` | Live editor indicators while typing | Required word chips update live; per-line status badges + rhyme hints; debounced 300ms; guidance note shown | `lib/rule-checks/live-checks.ts`, `components/lyric-puzzle-canvas.tsx` |
 | `TODO` | Real AI checks (Phase 5B) | Replace heuristic placeholders with actual AI model calls | `lib/rule-checks/ai-placeholder.ts` |
 
 ---
