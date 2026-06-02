@@ -198,6 +198,9 @@ export function runLiveChecks(lines: string[], challenge: ChallengeDTO): LiveChe
       if (r.status === "PASS") {
         rhymeHint = "Rhyme connected ✓";
         if (status === "in_progress") status = "looks_good";
+      } else if (r.status === "NEEDS_REVIEW") {
+        rhymeHint = "Possible slant rhyme ~";
+        if (status === "in_progress") status = "looks_good";
       } else {
         const partnerEnd = lineEndWord(lines[partnerIdx] ?? "");
         rhymeHint = partnerEnd ? `Connect to "${partnerEnd}"` : "Connect the end sounds";

@@ -15,19 +15,12 @@ function endWord(line: string): string {
   return (words[words.length - 1] ?? "").toLowerCase().replace(/[^a-z]/g, "");
 }
 
-/**
- * Very simple rhyme heuristic: share the same vowel nucleus + coda.
- * Handles "cat/bat", "night/light", "day/say", "nation/station".
- * NOT reliable for slant rhymes or multisyllabic rhymes — those need AI.
- */
-function simpleRhymes(a: string, b: string): boolean {
-  if (!a || !b || a === b) return false;
-  const nucleus = (w: string) => {
-    const v = w.search(/[aeiou]/);
-    return v === -1 ? w.slice(-2) : w.slice(v);
-  };
-  const na = nucleus(a), nb = nucleus(b);
-  return na.length >= 2 && nb.length >= 2 && na === nb;
+/** Find the end word in `line` and return its character range. */
+function endWordRange(line: string): { start: number; end: number } | null {
+  const trimmed = line.trimEnd();
+  const m = trimmed.match(/[a-zA-Z']+$/);
+  if (!m || m.index === undefined) return null;
+  return { start: m.index, end: m.index + m[0].length };
 }
 
 /** Find all character ranges in `line` where `word` appears (case-insensitive, whole-word). */
@@ -41,13 +34,104 @@ function findWordRanges(line: string, word: string): { start: number; end: numbe
   return ranges;
 }
 
-/** Find the end word in `line` and return its character range. */
-function endWordRange(line: string): { start: number; end: number } | null {
-  const trimmed = line.trimEnd();
-  const m = trimmed.match(/[a-zA-Z']+$/);
-  if (!m || !m.index) return null;
-  const start = m.index;
-  return { start, end: start + m[0].length };
+// ─── Rhyme detection ──────────────────────────────────────────────────────────
+
+function normalizeWord(w: string): string {
+  return w.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+/**
+ * Strip trailing silent 'e' so rhyme keys are phoneme-based rather than spelling-based.
+ * "home"→"hom", "time"→"tim", "stone"→"ston". Only strips when there are other vowels.
+ */
+function stripSilentE(w: string): string {
+  if (w.length > 3 && /[^aeiou]e$/.test(w) && /[aeiou]/.test(w.slice(0, -2))) {
+    return w.slice(0, -1);
+  }
+  return w;
+}
+
+/**
+ * Returns the rhyme key: the portion of the word from the last vowel-cluster to the end.
+ * Examples: "night"→"ight", "window"→"ow", "tempo"→"o", "station"→"ation", "home"→"om".
+ */
+function getRhymeKey(w: string): string {
+  const norm = stripSilentE(normalizeWord(w));
+  const m = norm.match(/[aeiou][^aeiou]*$/);
+  return m ? m[0] : norm.slice(-2);
+}
+
+/**
+ * Maps rhyme keys to broad vowel-sound groups for slant rhyme detection.
+ * Returns an uppercase group tag, or the original key if no group matches.
+ */
+function getPhonemeGroup(key: string): string {
+  const k = key;
+  // "OH" sound: o, ow, oe, oa, old, ome, on, etc.
+  if (/^o[^aeiou]*$/.test(k) || k === "ow" || k === "oe" || k === "oa") return "OH";
+  // "AY" sound: ay, ai, ei, a+consonants (late, make, rain)
+  if (/^a[^aeiou]+$/.test(k) || k === "ay" || k === "ai" || k === "ei") return "AY";
+  // "EE" sound: ee, ea, ie, ey, e alone
+  if (/^(ee|ea|ie|ey|e)$/.test(k)) return "EE";
+  // "EYE" sound: ight, ite, ine, ike, i+consonants
+  if (/^(igh|ight|ite|ine|ike|ile|ive)$/.test(k) || /^i[^aeiou]+$/.test(k)) return "EYE";
+  // "OO" sound: oo, ue, ew, oom, oon, ool, u+consonants
+  if (/^(oo|ue|ew|oom|oon|ool|oot)$/.test(k) || /^u[^aeiou]+$/.test(k)) return "OO";
+  // "ER" sound: er, ir, ur, ure
+  if (/^(er|ir|ur|ure)$/.test(k) || k.endsWith("er") || k.endsWith("ir")) return "ER";
+  // "AW" sound: aw, au
+  if (/^(aw|au|aught|ought)$/.test(k)) return "AW";
+  return k; // no group — return key as-is
+}
+
+export type RhymeResult = { status: "PASS" | "NEEDS_REVIEW" | "MISSING"; explanation: string };
+
+/**
+ * Determines whether two words are likely to rhyme, with slant-rhyme support.
+ *
+ * Level 1 — exact rhyme key: "night"/"fight" → PASS
+ * Level 1.5 — deduplicated key (handles "e"/"ee", "o"/"oo"): PASS
+ * Level 2 — same phoneme group: "window"/"tempo" (both OH) → NEEDS_REVIEW
+ * Level 3 — same last 2 chars of word: NEEDS_REVIEW
+ * Else → MISSING
+ */
+export function wordsLikelyRhyme(a: string, b: string): RhymeResult {
+  const wa = normalizeWord(a);
+  const wb = normalizeWord(b);
+  if (!wa || !wb) return { status: "MISSING", explanation: "empty word" };
+  if (wa === wb) return { status: "MISSING", explanation: "same word" };
+
+  const keyA = getRhymeKey(wa);
+  const keyB = getRhymeKey(wb);
+
+  // Level 1: exact rhyme key (min 1 char — single-vowel endings like "me/free" → "e" are valid)
+  if (keyA === keyB && keyA.length >= 1) {
+    return { status: "PASS", explanation: `"${a}" / "${b}" rhyme on "-${keyA}"` };
+  }
+
+  // Level 1.5: deduplicated consecutive chars (handles "o"/"oo", "e"/"ee")
+  const dedup = (s: string) => s.replace(/(.)\1+/g, "$1");
+  const dkA = dedup(keyA), dkB = dedup(keyB);
+  if (dkA === dkB && dkA.length >= 1) {
+    return { status: "PASS", explanation: `"${a}" / "${b}" — near-exact rhyme` };
+  }
+
+  // Level 2: same phoneme group (slant/vowel rhyme)
+  const groupA = getPhonemeGroup(keyA);
+  const groupB = getPhonemeGroup(keyB);
+  if (groupA === groupB) {
+    return {
+      status: "NEEDS_REVIEW",
+      explanation: `"${a}" / "${b}" — possible slant rhyme (similar vowel sound)`,
+    };
+  }
+
+  // Level 3: same last 2 chars of the normalized word
+  if (wa.length >= 4 && wb.length >= 4 && wa.slice(-2) === wb.slice(-2)) {
+    return { status: "NEEDS_REVIEW", explanation: `"${a}" / "${b}" — near rhyme (same ending)` };
+  }
+
+  return { status: "MISSING", explanation: `"${a}" / "${b}" — no rhyme detected` };
 }
 
 // ─── Line count ───────────────────────────────────────────────────────────────
@@ -71,8 +155,7 @@ export function checkLineCount(lines: string[], barCount: number): RuleCheckResu
 
 /**
  * Checks that every required word appears somewhere in the submission.
- * Returns one combined result: PASS if all found, MISSING if any absent.
- * Highlights each found occurrence with REQUIRED_WORD category.
+ * Highlights each found occurrence with REQUIRED_WORD category (inline, word-precise).
  */
 export function checkRequiredWords(
   lines: string[],
@@ -131,7 +214,7 @@ export function checkRequiredWords(
 
 /**
  * Heuristic: 2+ content words (length > 2) starting with the same letter.
- * Not AI — purely character-based. Labels itself as heuristic in result.
+ * Highlights each alliterating word individually (not the whole line).
  */
 export function checkAlliteration(line: string, lineIndex: number): RuleCheckResult {
   const words = line.match(/\b[a-zA-Z]{3,}\b/g) ?? [];
@@ -146,7 +229,6 @@ export function checkAlliteration(line: string, lineIndex: number): RuleCheckRes
     searchPos = pos + 1;
   }
 
-  // Find the letter with the most alliterating words
   let bestLetter = "";
   let bestGroup: { word: string; rawStart: number }[] = [];
   for (const [letter, group] of Object.entries(byLetter)) {
@@ -161,7 +243,7 @@ export function checkAlliteration(line: string, lineIndex: number): RuleCheckRes
       text: entry.word,
       category: "ALLITERATION" as const,
       confidence: 0.85,
-      explanation: `Alliterating words starting with '${bestLetter.toUpperCase()}'.`,
+      explanation: `Alliterating word starting with '${bestLetter.toUpperCase()}'.`,
     }));
     return {
       ruleType: "ALLITERATION",
@@ -186,8 +268,8 @@ export function checkAlliteration(line: string, lineIndex: number): RuleCheckRes
 // ─── End-rhyme pair ───────────────────────────────────────────────────────────
 
 /**
- * Checks that two lines end-rhyme with each other (heuristic vowel-nucleus matching).
- * Always highlights the end word of both lines with END_RHYME category.
+ * Checks that two lines end-rhyme (supports exact rhyme → PASS, slant → NEEDS_REVIEW).
+ * Always highlights the end word of both lines when they have content.
  */
 export function checkEndRhymePair(
   lines: string[],
@@ -199,36 +281,57 @@ export function checkEndRhymePair(
   const wordA = endWord(textA);
   const wordB = endWord(textB);
 
+  // Always highlight end words (they are the relevant spans regardless of rhyme quality)
   const highlights: ComputedHighlightSpan[] = [];
   const rangeA = endWordRange(textA);
   const rangeB = endWordRange(textB);
 
   if (rangeA) {
     highlights.push({
-      lineIndex: lineA, startIndex: rangeA.start, endIndex: rangeA.end,
+      lineIndex: lineA,
+      startIndex: rangeA.start,
+      endIndex: rangeA.end,
       text: textA.slice(rangeA.start, rangeA.end),
-      category: "END_RHYME", confidence: 0.8,
-      explanation: `End word rhyming with line ${lineB + 1}.`,
+      category: "END_RHYME",
+      confidence: 0.8,
+      explanation: `End word — rhyme pair with line ${lineB + 1}.`,
     });
   }
   if (rangeB) {
     highlights.push({
-      lineIndex: lineB, startIndex: rangeB.start, endIndex: rangeB.end,
+      lineIndex: lineB,
+      startIndex: rangeB.start,
+      endIndex: rangeB.end,
       text: textB.slice(rangeB.start, rangeB.end),
-      category: "END_RHYME", confidence: 0.8,
-      explanation: `End word rhyming with line ${lineA + 1}.`,
+      category: "END_RHYME",
+      confidence: 0.8,
+      explanation: `End word — rhyme pair with line ${lineA + 1}.`,
     });
   }
 
-  const rhymes = simpleRhymes(wordA, wordB);
+  if (!wordA || !wordB) {
+    return {
+      ruleType: "END_RHYME",
+      lineIndex: lineA,
+      status: "NEEDS_REVIEW",
+      confidence: 0.3,
+      explanation: "One or both lines are empty — rhyme cannot be checked.",
+      highlights,
+    };
+  }
+
+  const rhyme = wordsLikelyRhyme(wordA, wordB);
+  const confidence = rhyme.status === "PASS" ? 0.85 : rhyme.status === "NEEDS_REVIEW" ? 0.6 : 0.3;
+
+  // Update highlight confidence to match rhyme quality
+  for (const h of highlights) h.confidence = confidence;
+
   return {
     ruleType: "END_RHYME",
     lineIndex: lineA,
-    status: rhymes ? "PASS" : "NEEDS_REVIEW",
-    confidence: rhymes ? 0.8 : 0.5,
-    explanation: rhymes
-      ? `"${wordA}" / "${wordB}" detected as a rhyme pair (heuristic).`
-      : `End words "${wordA}" / "${wordB}" — rhyme quality needs review.`,
+    status: rhyme.status,
+    confidence,
+    explanation: rhyme.explanation,
     highlights,
   };
 }
@@ -237,14 +340,12 @@ export function checkEndRhymePair(
 
 /**
  * Processes a full rhyme scheme: groups lines by letter, runs a rhyme-pair
- * check for every consecutive pair within each group, and highlights end words.
- * Returns one result per group.
+ * check for every consecutive pair within each group.
  */
 export function checkRhymeScheme(
   lines: string[],
   scheme: string[],
 ): RuleCheckResult[] {
-  // Group line indices by scheme letter
   const groups = new Map<string, number[]>();
   scheme.forEach((letter, i) => {
     if (!groups.has(letter)) groups.set(letter, []);
@@ -252,17 +353,12 @@ export function checkRhymeScheme(
   });
 
   const results: RuleCheckResult[] = [];
-
   for (const [, indices] of groups) {
-    if (indices.length < 2) continue; // singleton — no rhyme check needed
-
-    // Check consecutive pairs (AA, AB in ABAB, etc.)
+    if (indices.length < 2) continue;
     for (let p = 0; p < indices.length - 1; p++) {
-      const a = indices[p], b = indices[p + 1];
-      results.push(checkEndRhymePair(lines, a, b));
+      results.push(checkEndRhymePair(lines, indices[p], indices[p + 1]));
     }
   }
-
   return results;
 }
 
@@ -270,7 +366,7 @@ export function checkRhymeScheme(
 
 /**
  * LINE_START_RHYMES_WITH_PREVIOUS_END: first word of line N should rhyme with
- * the last word of line N-1.
+ * the last word of line N-1. Uses improved slant-rhyme detection.
  */
 export function checkChainRhyme(lines: string[], lineIndex: number): RuleCheckResult {
   if (lineIndex === 0) {
@@ -288,7 +384,7 @@ export function checkChainRhyme(lines: string[], lineIndex: number): RuleCheckRe
   const thisLine = lines[lineIndex] ?? "";
   const prevEnd = endWord(prevLine);
   const thisStart = (thisLine.match(/^[a-zA-Z']+/) ?? [""])[0].toLowerCase().replace(/[^a-z]/g, "");
-  const rhymes = simpleRhymes(prevEnd, thisStart);
+  const rhyme = wordsLikelyRhyme(prevEnd, thisStart);
 
   const highlights: ComputedHighlightSpan[] = [];
   if (thisStart) {
@@ -298,19 +394,17 @@ export function checkChainRhyme(lines: string[], lineIndex: number): RuleCheckRe
       endIndex: thisStart.length,
       text: thisLine.slice(0, thisStart.length),
       category: "END_RHYME",
-      confidence: rhymes ? 0.8 : 0.5,
-      explanation: `Start word, should rhyme with "${prevEnd}" from line ${lineIndex}.`,
+      confidence: rhyme.status === "PASS" ? 0.85 : 0.5,
+      explanation: `Start word — chain rhyme with end of line ${lineIndex}.`,
     });
   }
 
   return {
     ruleType: "LINE_START_RHYMES_WITH_PREVIOUS_END",
     lineIndex,
-    status: rhymes ? "PASS" : "NEEDS_REVIEW",
-    confidence: rhymes ? 0.8 : 0.5,
-    explanation: rhymes
-      ? `"${thisStart}" / "${prevEnd}" detected as chain rhyme (heuristic).`
-      : `Start word "${thisStart}" / end word "${prevEnd}" — chain rhyme needs review.`,
+    status: rhyme.status,
+    confidence: rhyme.status === "PASS" ? 0.85 : 0.5,
+    explanation: rhyme.explanation,
     highlights,
   };
 }
@@ -318,8 +412,8 @@ export function checkChainRhyme(lines: string[], lineIndex: number): RuleCheckRe
 // ─── Theme reference ──────────────────────────────────────────────────────────
 
 /**
- * Simple keyword search: if the theme word (or a root of it) appears in the line,
- * PASS. Otherwise NEEDS_REVIEW — theme can be expressed many ways.
+ * Keyword search: if the theme word (or a root of it) appears in the line, PASS.
+ * Highlights the matched theme word inline.
  */
 export function checkThemeReference(
   line: string,
@@ -327,24 +421,24 @@ export function checkThemeReference(
   theme: string,
 ): RuleCheckResult {
   const lower = line.toLowerCase();
-  // Check theme word and simple root (first 5 chars as stem)
   const stem = theme.toLowerCase().slice(0, 5);
-  const found = lower.includes(theme.toLowerCase()) || lower.includes(stem);
+  const idx = lower.indexOf(theme.toLowerCase());
+  const stemIdx = idx === -1 ? lower.indexOf(stem) : -1;
+  const found = idx !== -1 || stemIdx !== -1;
 
   const highlights: ComputedHighlightSpan[] = [];
   if (found) {
-    const idx = lower.indexOf(theme.toLowerCase());
-    if (idx !== -1) {
-      highlights.push({
-        lineIndex,
-        startIndex: idx,
-        endIndex: idx + theme.length,
-        text: line.slice(idx, idx + theme.length),
-        category: "METAPHOR", // closest semantic category
-        confidence: 0.7,
-        explanation: `Theme reference to "${theme}" detected.`,
-      });
-    }
+    const start = idx !== -1 ? idx : stemIdx;
+    const matchText = idx !== -1 ? theme : stem;
+    highlights.push({
+      lineIndex,
+      startIndex: start,
+      endIndex: start + matchText.length,
+      text: line.slice(start, start + matchText.length),
+      category: "METAPHOR",
+      confidence: 0.7,
+      explanation: `Theme reference to "${theme}" detected.`,
+    });
   }
 
   return {

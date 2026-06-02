@@ -13,8 +13,11 @@ import {
 import type { DailyBarCount } from "@/lib/daily-challenge";
 import { BeatPlayer } from "@/components/beat-player";
 import { LyricPuzzleCanvas } from "@/components/lyric-puzzle-canvas";
+import { SubmissionPatternCard } from "@/components/submission-pattern-card";
 import { cn, copyToClipboard } from "@/lib/utils";
-import type { BeatDTO } from "@/lib/types";
+import type { BeatDTO, SubmissionLineDTO } from "@/lib/types";
+import { runRuleChecks } from "@/lib/rule-checks/run-rule-checks";
+import { CATEGORY_COLOR } from "@/lib/rule-checks/types";
 
 const BEAT_DTO = DAILY_BEAT as unknown as BeatDTO;
 const VALID_BAR_COUNTS: DailyBarCount[] = [3, 6, 8];
@@ -40,6 +43,9 @@ export default function DailyPlayPage() {
 
   // Copy Result state
   const [copyResultState, setCopyResultState] = useState<"idle" | "copied" | "fallback">("idle");
+
+  // Preview highlight spans for post-submit card
+  const [previewLines, setPreviewLines] = useState<SubmissionLineDTO[] | null>(null);
 
   if (!isValid) {
     return (
@@ -69,6 +75,39 @@ export default function DailyPlayPage() {
 
   function handleSubmit() {
     if (!allFilled) return;
+
+    // Compute highlight spans client-side for the post-submit preview
+    try {
+      const { allHighlights } = runRuleChecks(barLines, challenge);
+      const computed: SubmissionLineDTO[] = barLines.map((text, lineIndex) => ({
+        id: `preview-${lineIndex}`,
+        lineIndex,
+        text: text.trim(),
+        highlightSpans: allHighlights
+          .filter((s) => s.lineIndex === lineIndex)
+          .map((s, spanIdx) => ({
+            id: `preview-span-${lineIndex}-${spanIdx}`,
+            startIndex: s.startIndex,
+            endIndex: s.endIndex,
+            category: s.category,
+            color: CATEGORY_COLOR[s.category],
+            confidence: s.confidence,
+            explanation: s.explanation,
+          })),
+      }));
+      setPreviewLines(computed);
+    } catch {
+      // Non-fatal — preview shows bars without highlights
+      setPreviewLines(
+        barLines.map((text, lineIndex) => ({
+          id: `preview-${lineIndex}`,
+          lineIndex,
+          text: text.trim(),
+          highlightSpans: [],
+        })),
+      );
+    }
+
     setPhase("submitted");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -247,19 +286,19 @@ export default function DailyPlayPage() {
           <p className="text-zinc-500 text-sm">{DAILY_TITLE} · {barCount} Bars</p>
         </div>
 
-        {/* Submitted bars preview */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-          <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mb-3">
-            Your bars
-          </p>
-          <div className="space-y-2">
-            {submittedLines.map((line, i) => (
-              <p key={i} className="text-zinc-100 text-sm leading-relaxed">
-                {line.trim()}
-              </p>
-            ))}
+        {/* Colorful bars preview with inline highlights */}
+        {previewLines && (
+          <div>
+            <SubmissionPatternCard
+              challenge={challenge}
+              lines={previewLines}
+              label="Your Bars"
+            />
+            <p className="text-[10px] text-zinc-600 text-center mt-2 leading-relaxed">
+              Rhyzzle checks the pattern, not quality. Humans still vote who cooked.
+            </p>
           </div>
-        </div>
+        )}
 
         {/* Challenge Friends flow */}
         {challengeRoomCode ? (
