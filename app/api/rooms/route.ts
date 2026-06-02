@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { CreateRoomRequest, CreateRoomResponse, RoomStateDTO, RoomMode } from "@/lib/types";
-import { generateRoomCode, generateSessionToken } from "@/lib/utils";
+import { generateRoomCode, generateSessionToken, getDefaultLocksAt } from "@/lib/utils";
 import { saveRoom, roomExists, saveSubmission } from "@/lib/room-store";
 import { SAMPLE_BEATS, SAMPLE_CHALLENGES } from "@/lib/sample-data";
 import { DAILY_BEAT, getDailyVariant, variantToChallengeDTO } from "@/lib/daily-challenge";
@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
     let challenge: RoomStateDTO["challenge"];
     let initialStatus: RoomStateDTO["status"] = "LOBBY";
     let roomMode: RoomMode = "GROUP_ROOM";
+    let locksAt: string | null = null;
 
     if (body.source === "DAILY_CHALLENGE" || body.source === "CHALLENGE_LINK") {
       const barCount = (body.barCount ?? 6) as DailyBarCount;
@@ -46,10 +47,11 @@ export async function POST(req: NextRequest) {
       };
       challenge = challengeDTO;
 
-      // Challenge links skip LOBBY — they start in WRITING (creator already has bars)
+      // Challenge links: live all day, no LOBBY, lock at 9 PM
       if (body.source === "CHALLENGE_LINK") {
-        initialStatus = "WRITING";
+        initialStatus = "WRITING"; // kept for backward compat with join API; lock state drives UI
         roomMode = "CHALLENGE_LINK";
+        locksAt = getDefaultLocksAt();
       }
     } else {
       // Legacy custom room path
@@ -137,6 +139,8 @@ export async function POST(req: NextRequest) {
       votingMode: "ANONYMOUS",
       roomMode,
       deadline: body.deadline ?? null,
+      locksAt,                              // null for GROUP_ROOM; 9 PM timestamp for CHALLENGE_LINK
+      isLocked: false,                      // always false in stored state; GET recomputes from locksAt
       beat,
       challenge,
       participants: [hostParticipant],
@@ -146,6 +150,7 @@ export async function POST(req: NextRequest) {
       currentParticipantId: null,           // always null in stored state; GET sets this per-requester
       currentParticipantHasSubmitted: false, // always false in stored state; GET sets this per-requester
       currentParticipantHasVoted: false,    // always false in stored state; GET sets this per-requester
+      currentParticipantVotedForId: null,   // always null in stored state; GET sets this per-requester
       votedCount: 0,                        // always 0 in stored state; GET computes this live
     };
 

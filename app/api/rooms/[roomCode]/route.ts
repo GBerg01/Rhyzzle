@@ -6,6 +6,7 @@ import {
   getSubmissionsForRoom,
   getVoteCountsForRoom,
   getVotesForRoom,
+  getVoteForParticipant,
 } from "@/lib/room-store";
 import type { SubmissionDTO, RoomStateDTO } from "@/lib/types";
 
@@ -45,14 +46,62 @@ export async function GET(
     const votes = getVotesForRoom(upperCode);
     const votedCount = votes.length;
 
-    // Build submissions for VOTING and REVEAL states
+    // Lock state — only meaningful for CHALLENGE_LINK rooms
+    const locksAtStr = room.locksAt;
+    const isLocked =
+      room.roomMode === "CHALLENGE_LINK" && !!locksAtStr
+        ? Date.now() >= new Date(locksAtStr).getTime()
+        : false;
+
+    // Which submission the current participant voted for (CHALLENGE_LINK: allow vote change)
+    const currentParticipantVotedForId = currentParticipant
+      ? (getVoteForParticipant(upperCode, currentParticipant.id)?.submissionId ?? null)
+      : null;
+
+    // Build submissions depending on room mode
     let submissions: SubmissionDTO[] | undefined;
-    if (room.status === "VOTING" || room.status === "REVEAL") {
+
+    if (room.roomMode === "CHALLENGE_LINK") {
+      // Challenge Links: always return submissions so the voting UI can show them.
+      // Before locksAt: anonymous (no names, vote counts hidden).
+      // After locksAt: full names and real vote counts (final results).
+      const storedSubs = getSubmissionsForRoom(upperCode);
+      if (storedSubs.length > 0) {
+        const voteCounts = getVoteCountsForRoom(upperCode);
+        let maxVotes = 0;
+        if (isLocked) {
+          for (const [, count] of voteCounts) {
+            if (count > maxVotes) maxVotes = count;
+          }
+        }
+        submissions = storedSubs.map((sub) => {
+          const participant = room.participants.find((p) => p.id === sub.participantId);
+          const isOwn = sub.participantId === currentParticipant?.id;
+          const voteCount = voteCounts.get(sub.submissionId) ?? 0;
+          return {
+            id: sub.submissionId,
+            participantId: isLocked ? sub.participantId : "",
+            nickname: isLocked ? (participant?.nickname ?? null) : null,
+            rawText: sub.rawText,
+            lines: sub.lines.map((text, idx) => ({
+              id: `${sub.submissionId}_line_${idx}`,
+              lineIndex: idx,
+              text,
+              highlightSpans: [],
+            })),
+            voteCount: isLocked ? voteCount : 0, // hide counts during live voting (prevent bandwagon)
+            isWinner: isLocked && maxVotes > 0 && voteCount === maxVotes,
+            isOwnSubmission: isOwn,
+            constraintResults: [],
+          } satisfies SubmissionDTO;
+        });
+      }
+    } else if (room.status === "VOTING" || room.status === "REVEAL") {
+      // GROUP_ROOM: existing state-machine logic unchanged
       const storedSubs = getSubmissionsForRoom(upperCode);
       const voteCounts = getVoteCountsForRoom(upperCode);
       const isReveal = room.status === "REVEAL";
 
-      // In REVEAL, find the max vote count to mark winners
       let maxVotes = 0;
       if (isReveal) {
         for (const [, count] of voteCounts) {
@@ -64,10 +113,8 @@ export async function GET(
         const participant = room.participants.find((p) => p.id === sub.participantId);
         const isOwn = sub.participantId === currentParticipant?.id;
         const voteCount = voteCounts.get(sub.submissionId) ?? 0;
-
         return {
           id: sub.submissionId,
-          // Anonymize during voting; reveal identity at REVEAL
           participantId: isReveal ? sub.participantId : "",
           nickname: isReveal ? (participant?.nickname ?? null) : null,
           rawText: sub.rawText,
@@ -77,7 +124,6 @@ export async function GET(
             text,
             highlightSpans: [],
           })),
-          // Hide vote counts during voting to prevent bandwagon effect
           voteCount: isReveal ? voteCount : 0,
           isWinner: isReveal && maxVotes > 0 && voteCount === maxVotes,
           isOwnSubmission: isOwn,
@@ -92,7 +138,9 @@ export async function GET(
       isHost: currentParticipant?.isHost ?? false,
       currentParticipantHasSubmitted,
       currentParticipantHasVoted,
+      currentParticipantVotedForId,
       votedCount,
+      isLocked,
       submissions,
     };
 

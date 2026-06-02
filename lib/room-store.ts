@@ -110,6 +110,10 @@ export function hasParticipantVoted(roomCode: string, participantId: string): bo
   return voteStore.has(voteKey(roomCode, participantId));
 }
 
+export function getVoteForParticipant(roomCode: string, participantId: string): StoredVote | undefined {
+  return voteStore.get(voteKey(roomCode, participantId));
+}
+
 export function getVotesForRoom(roomCode: string): StoredVote[] {
   const upper = roomCode.toUpperCase();
   return Array.from(voteStore.values()).filter((v) => v.roomCode === upper);

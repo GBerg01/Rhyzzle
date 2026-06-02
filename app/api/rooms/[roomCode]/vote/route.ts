@@ -34,17 +34,30 @@ export async function POST(
       return NextResponse.json({ error: "Room not found" }, { status: 404 });
     }
 
-    if (room.status !== "VOTING") {
-      return NextResponse.json({ error: "Room is not in the voting phase" }, { status: 400 });
-    }
-
     const participant = room.participants.find((p) => p.id === participantCookie);
     if (!participant) {
       return NextResponse.json({ error: "You are not in this room" }, { status: 403 });
     }
 
-    if (hasParticipantVoted(upperCode, participantCookie)) {
-      return NextResponse.json({ error: "You have already voted" }, { status: 409 });
+    if (room.roomMode === "CHALLENGE_LINK") {
+      // Challenge links: voting open before locksAt; votes can be changed
+      const locksAt = room.locksAt;
+      const isLocked = locksAt ? Date.now() >= new Date(locksAt).getTime() : false;
+      if (isLocked) {
+        return NextResponse.json(
+          { error: "Today's Rhyzzle is locked. Final results are live." },
+          { status: 400 }
+        );
+      }
+      // No double-vote check — votes can be changed by overwriting (saveVote uses same key)
+    } else {
+      // GROUP_ROOM: must be in VOTING state, no changing votes
+      if (room.status !== "VOTING") {
+        return NextResponse.json({ error: "Room is not in the voting phase" }, { status: 400 });
+      }
+      if (hasParticipantVoted(upperCode, participantCookie)) {
+        return NextResponse.json({ error: "You have already voted" }, { status: 409 });
+      }
     }
 
     // Verify the submission exists in this room and doesn't belong to the voter

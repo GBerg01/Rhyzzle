@@ -25,32 +25,29 @@ export async function POST(
       return NextResponse.json({ error: "Room not found" }, { status: 404 });
     }
 
-    if (room.status !== "WRITING") {
-      return NextResponse.json(
-        { error: `Room is in ${room.status} state, not WRITING` },
-        { status: 400 }
-      );
-    }
-
     const participant = room.participants.find((p) => p.id === participantCookie);
     if (!participant) {
       return NextResponse.json({ error: "You are not in this room" }, { status: 403 });
     }
 
     if (room.roomMode === "CHALLENGE_LINK") {
-      // Any submitted participant can start voting on a challenge link
-      const submitted = hasParticipantSubmitted(upperCode, participantCookie);
-      if (!submitted) {
-        return NextResponse.json(
-          { error: "You must submit your bars before starting the vote" },
-          { status: 403 }
-        );
-      }
-    } else {
-      // GROUP_ROOM: host only
-      if (!participant.isHost) {
-        return NextResponse.json({ error: "Only the host can start voting" }, { status: 403 });
-      }
+      // Challenge Links are live all day — no manual voting trigger needed.
+      return NextResponse.json(
+        { message: "Challenge Links are live all day. Submit and vote anytime before results lock." },
+        { status: 200 }
+      );
+    }
+
+    // GROUP_ROOM: host-only state transition
+    if (!participant.isHost) {
+      return NextResponse.json({ error: "Only the host can start voting" }, { status: 403 });
+    }
+
+    if (room.status !== "WRITING") {
+      return NextResponse.json(
+        { error: `Room is in ${room.status} state, not WRITING` },
+        { status: 400 }
+      );
     }
 
     const submissions = getSubmissionsForRoom(upperCode);

@@ -10,6 +10,18 @@ import { getRoomUrl, cn } from "@/lib/utils";
 
 const POLL_INTERVAL_MS = 4000;
 
+// Formats an ISO locksAt timestamp as a human-readable time in the user's local timezone.
+// e.g. "9 PM", "8:30 PM". Server sets locksAt in its TZ; client displays in browser TZ.
+function formatLockTime(locksAt: string): string {
+  const d = new Date(locksAt);
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const period = h >= 12 ? "PM" : "AM";
+  const hour = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  if (m === 0) return `${hour} ${period}`;
+  return `${hour}:${String(m).padStart(2, "0")} ${period}`;
+}
+
 export default function RoomPage() {
   const { roomCode } = useParams<{ roomCode: string }>();
   const [roomState, setRoomState] = useState<RoomStateDTO | null>(null);
@@ -86,6 +98,13 @@ export default function RoomPage() {
       setHasVoted(true);
     }
   }, [roomState?.currentParticipantHasVoted, hasVoted]);
+
+  // Hydrate which submission the current participant voted for (CHALLENGE_LINK vote-change support)
+  useEffect(() => {
+    if (roomState?.currentParticipantVotedForId && !selectedSubmissionId) {
+      setSelectedSubmissionId(roomState.currentParticipantVotedForId);
+    }
+  }, [roomState?.currentParticipantVotedForId, selectedSubmissionId]);
 
   // Initialize barLines array when room enters WRITING state and user has joined
   useEffect(() => {
@@ -284,110 +303,146 @@ export default function RoomPage() {
           <span className="font-mono text-xs text-zinc-500 bg-zinc-900 border border-zinc-800 px-2 py-1 rounded-lg">
             {roomCode}
           </span>
-          <RoomStatusBadge status={status} />
+          {roomMode === "CHALLENGE_LINK" ? (
+            <span className={cn(
+              "text-xs font-semibold px-2 py-1 rounded-full",
+              roomState.isLocked ? "text-zinc-400 bg-zinc-900" : "text-green-400 bg-green-400/10"
+            )}>
+              {roomState.isLocked ? "Locked" : "Live"}
+            </span>
+          ) : (
+            <RoomStatusBadge status={status} />
+          )}
         </div>
       </nav>
 
       <div className="max-w-sm mx-auto px-5 py-6">
 
-        {/* ── LOBBY: Guest Join Form (not yet in room) ──────────────────────── */}
-        {status === "LOBBY" && !hasJoined && (
-          <GuestJoinView
-            nickname={nickname}
-            setNickname={setNickname}
-            onJoin={handleJoin}
-            isJoining={isJoining}
-            participants={participants}
-            beatTitle={beat.title}
-            barCount={challenge.barCount}
-          />
-        )}
-
-        {/* ── LOBBY: In-room lobby (host + joined guests) ───────────────────── */}
-        {status === "LOBBY" && hasJoined && (
-          <LobbyView
-            roomCode={roomCode}
-            participants={participants}
-            isHost={isHost}
-            myNickname={myNickname}
-            beat={beat}
-            challenge={challenge}
-            onShare={handleShare}
-            copied={copied}
-            onStart={handleStart}
-            isStarting={isStarting}
-          />
-        )}
-
-        {/* ── WRITING: not joined yet — friend opening a challenge link ────── */}
-        {status === "WRITING" && !hasJoined && (
-          <WritingJoinView
-            hostNickname={participants.find((p) => p.isHost)?.nickname ?? null}
-            beat={beat}
-            challenge={challenge}
-            nickname={nickname}
-            setNickname={setNickname}
-            onJoin={handleJoin}
-            isJoining={isJoining}
-          />
-        )}
-
-        {/* ── WRITING: in the room ──────────────────────────────────────────── */}
-        {status === "WRITING" && hasJoined && (
-          <WritingView
-            beat={beat}
-            challenge={challenge}
-            barLines={barLines}
-            onLineChange={handleBarLineChange}
+        {/* ── CHALLENGE_LINK: locksAt-driven UI (no state machine) ────────── */}
+        {roomMode === "CHALLENGE_LINK" && (
+          <ChallengeLinkView
+            roomState={roomState}
+            hasJoined={hasJoined}
             hasSubmitted={hasSubmitted}
-            isSubmitting={isSubmitting}
-            onSubmit={handleSubmit}
-            submittedCount={submittedCount}
-            totalCount={totalCount}
-            isHost={isHost}
-            roomMode={roomMode}
-            roomCode={roomCode}
-            onStartVoting={handleStartVoting}
-            isStartingVoting={isStartingVoting}
-          />
-        )}
-
-        {/* ── VOTING ────────────────────────────────────────────────────────── */}
-        {status === "VOTING" && (
-          <VotingView
-            submissions={roomState.submissions ?? []}
-            selectedId={selectedSubmissionId}
-            setSelectedId={setSelectedSubmissionId}
             hasVoted={hasVoted}
+            selectedSubmissionId={selectedSubmissionId}
+            setSelectedSubmissionId={setSelectedSubmissionId}
+            nickname={nickname}
+            setNickname={setNickname}
+            barLines={barLines}
+            onBarLineChange={handleBarLineChange}
+            handleJoin={handleJoin}
+            isJoining={isJoining}
+            handleSubmit={handleSubmit}
+            isSubmitting={isSubmitting}
+            handleVote={handleVote}
             isVoting={isVoting}
-            onVote={handleVote}
-            isHost={isHost}
-            onReveal={handleReveal}
-            isRevealing={isRevealing}
-            votedCount={roomState.votedCount ?? 0}
-            totalCount={totalCount}
-          />
-        )}
-
-        {/* ── REVEAL ────────────────────────────────────────────────────────── */}
-        {status === "REVEAL" && (
-          <RevealView
-            submissions={roomState.submissions ?? []}
-            onShare={handleShare}
+            handleShare={handleShare}
             copied={copied}
+            roomCode={roomCode}
           />
         )}
 
-        {/* ── CLOSED ────────────────────────────────────────────────────────── */}
-        {status === "CLOSED" && (
-          <div className="text-center py-16">
-            <div className="text-4xl mb-4">🏁</div>
-            <h2 className="font-black text-xl mb-2">Room Closed</h2>
-            <p className="text-zinc-500 text-sm mb-8">This room has ended.</p>
-            <Link href="/play" className="block bg-amber-400 text-zinc-950 font-black py-4 rounded-2xl">
-              Play Today&apos;s Rhyzzle
-            </Link>
-          </div>
+        {/* ── GROUP_ROOM: host-led state machine ──────────────────────────── */}
+        {roomMode !== "CHALLENGE_LINK" && (
+          <>
+            {/* LOBBY: Guest Join Form (not yet in room) */}
+            {status === "LOBBY" && !hasJoined && (
+              <GuestJoinView
+                nickname={nickname}
+                setNickname={setNickname}
+                onJoin={handleJoin}
+                isJoining={isJoining}
+                participants={participants}
+                beatTitle={beat.title}
+                barCount={challenge.barCount}
+              />
+            )}
+
+            {/* LOBBY: In-room lobby (host + joined guests) */}
+            {status === "LOBBY" && hasJoined && (
+              <LobbyView
+                roomCode={roomCode}
+                participants={participants}
+                isHost={isHost}
+                myNickname={myNickname}
+                beat={beat}
+                challenge={challenge}
+                onShare={handleShare}
+                copied={copied}
+                onStart={handleStart}
+                isStarting={isStarting}
+              />
+            )}
+
+            {/* WRITING: not joined — late arrival blocked */}
+            {status === "WRITING" && !hasJoined && (
+              <LateArrivalView status={status} />
+            )}
+
+            {/* WRITING: in the room */}
+            {status === "WRITING" && hasJoined && (
+              <WritingView
+                beat={beat}
+                challenge={challenge}
+                barLines={barLines}
+                onLineChange={handleBarLineChange}
+                hasSubmitted={hasSubmitted}
+                isSubmitting={isSubmitting}
+                onSubmit={handleSubmit}
+                submittedCount={submittedCount}
+                totalCount={totalCount}
+                isHost={isHost}
+                roomMode={roomMode}
+                roomCode={roomCode}
+                onStartVoting={handleStartVoting}
+                isStartingVoting={isStartingVoting}
+              />
+            )}
+
+            {/* VOTING: not joined */}
+            {status === "VOTING" && !hasJoined && (
+              <LateArrivalView status={status} />
+            )}
+
+            {/* VOTING: in the room */}
+            {status === "VOTING" && hasJoined && (
+              <VotingView
+                submissions={roomState.submissions ?? []}
+                selectedId={selectedSubmissionId}
+                setSelectedId={setSelectedSubmissionId}
+                hasVoted={hasVoted}
+                isVoting={isVoting}
+                onVote={handleVote}
+                isHost={isHost}
+                onReveal={handleReveal}
+                isRevealing={isRevealing}
+                votedCount={roomState.votedCount ?? 0}
+                totalCount={totalCount}
+              />
+            )}
+
+            {/* REVEAL: shown to everyone — read-only */}
+            {status === "REVEAL" && (
+              <RevealView
+                submissions={roomState.submissions ?? []}
+                onShare={handleShare}
+                copied={copied}
+              />
+            )}
+
+            {/* CLOSED */}
+            {status === "CLOSED" && (
+              <div className="text-center py-16">
+                <div className="text-4xl mb-4">🏁</div>
+                <h2 className="font-black text-xl mb-2">Room Closed</h2>
+                <p className="text-zinc-500 text-sm mb-8">This room has ended.</p>
+                <Link href="/play" className="block bg-amber-400 text-zinc-950 font-black py-4 rounded-2xl">
+                  Play Today&apos;s Rhyzzle
+                </Link>
+              </div>
+            )}
+          </>
         )}
 
         {error && (
@@ -493,83 +548,6 @@ function GuestJoinView({
   );
 }
 
-// Shown to friends opening a challenge link (WRITING state, not yet joined)
-function WritingJoinView({
-  hostNickname,
-  beat,
-  challenge,
-  nickname,
-  setNickname,
-  onJoin,
-  isJoining,
-}: {
-  hostNickname: string | null;
-  beat: RoomStateDTO["beat"];
-  challenge: RoomStateDTO["challenge"];
-  nickname: string;
-  setNickname: (v: string) => void;
-  onJoin: () => void;
-  isJoining: boolean;
-}) {
-  return (
-    <div className="space-y-6">
-      <div className="text-center pt-4">
-        {hostNickname ? (
-          <>
-            <p className="text-amber-400 text-xs font-black uppercase tracking-widest mb-2">
-              Challenge
-            </p>
-            <h1 className="font-black text-2xl leading-tight mb-1">
-              {hostNickname} challenged you
-            </h1>
-            <p className="text-zinc-400 text-sm">
-              Same beat. Same prompt. {challenge.barCount} bars.
-            </p>
-          </>
-        ) : (
-          <>
-            <h1 className="font-black text-2xl mb-1">Today&apos;s Rhyzzle</h1>
-            <p className="text-zinc-400 text-sm">
-              {challenge.barCount} bars · Write your verse
-            </p>
-          </>
-        )}
-      </div>
-
-      {/* Beat info */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-lg flex-shrink-0">
-          🎵
-        </div>
-        <div>
-          <p className="text-white font-semibold text-sm">{beat.title}</p>
-          <p className="text-zinc-500 text-xs">{beat.bpm} BPM · {challenge.barCount} bars</p>
-        </div>
-      </div>
-
-      {/* Join form */}
-      <div className="space-y-3">
-        <input
-          type="text"
-          value={nickname}
-          onChange={(e) => setNickname(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && onJoin()}
-          placeholder="Your name"
-          maxLength={20}
-          autoFocus
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-4 text-white placeholder-zinc-600 text-lg font-semibold focus:outline-none focus:border-amber-400 transition-colors"
-        />
-        <button
-          onClick={onJoin}
-          disabled={isJoining || !nickname.trim()}
-          className="w-full bg-amber-400 text-zinc-950 font-black text-lg py-4 rounded-2xl hover:bg-amber-300 active:scale-95 transition-all disabled:opacity-50"
-        >
-          {isJoining ? "Joining..." : "Write Your Bars →"}
-        </button>
-      </div>
-    </div>
-  );
-}
 
 // Shown to everyone who is in the room (host + joined guests) during LOBBY
 function LobbyView({
@@ -1155,3 +1133,498 @@ function RevealView({
     </div>
   );
 }
+
+// ── Late arrival view (GROUP_ROOM only) ───────────────────────────────────────
+
+// Shown when a non-joined guest opens a GROUP_ROOM link in WRITING or VOTING state.
+function LateArrivalView({ status }: { status: RoomStateDTO["status"] }) {
+  const isVoting = status === "VOTING";
+  return (
+    <div className="space-y-6 pt-4">
+      <div className="text-center">
+        <div className="text-4xl mb-3">{isVoting ? "🗳️" : "⛔"}</div>
+        <h1 className="font-black text-2xl mb-2">
+          {isVoting ? "Voting in progress" : "Game already started"}
+        </h1>
+        <p className="text-zinc-400 text-sm leading-relaxed max-w-xs mx-auto">
+          {isVoting
+            ? "This group room's vote has already started."
+            : "This group room's game has already started. You can't join mid-game."}
+        </p>
+      </div>
+
+      <Link
+        href="/play"
+        className="block w-full bg-amber-400 text-zinc-950 font-black text-lg py-4 rounded-2xl text-center hover:bg-amber-300 active:scale-95 transition-all"
+      >
+        Play Today&apos;s Rhyzzle →
+      </Link>
+      <Link href="/" className="block text-center text-zinc-600 text-sm hover:text-zinc-400 transition-colors py-1">
+        ← Back Home
+      </Link>
+    </div>
+  );
+}
+
+// ── CHALLENGE_LINK views ───────────────────────────────────────────────────────
+
+function ChallengeLinkView({
+  roomState, hasJoined, hasSubmitted, hasVoted,
+  selectedSubmissionId, setSelectedSubmissionId,
+  nickname, setNickname, barLines, onBarLineChange,
+  handleJoin, isJoining, handleSubmit, isSubmitting,
+  handleVote, isVoting, handleShare, copied, roomCode,
+}: {
+  roomState: RoomStateDTO;
+  hasJoined: boolean;
+  hasSubmitted: boolean;
+  hasVoted: boolean;
+  selectedSubmissionId: string | null;
+  setSelectedSubmissionId: (id: string) => void;
+  nickname: string;
+  setNickname: (v: string) => void;
+  barLines: string[];
+  onBarLineChange: (index: number, value: string) => void;
+  handleJoin: () => void;
+  isJoining: boolean;
+  handleSubmit: () => void;
+  isSubmitting: boolean;
+  handleVote: () => void;
+  isVoting: boolean;
+  handleShare: () => void;
+  copied: boolean;
+  roomCode: string;
+}) {
+  const { isLocked, locksAt, beat, challenge, participants, submittedCount } = roomState;
+  const hostNickname = participants.find((p) => p.isHost)?.nickname ?? null;
+  const submissions = roomState.submissions ?? [];
+  const lockTimeDisplay = locksAt ? formatLockTime(locksAt) : "9 PM";
+
+  // After locksAt: final results for everyone
+  if (isLocked) {
+    return <ChallengeFinalView submissions={submissions} onShare={handleShare} copied={copied} />;
+  }
+
+  // Before locksAt: not yet joined
+  if (!hasJoined) {
+    return (
+      <ChallengeLinkJoinView
+        hostNickname={hostNickname}
+        lockTimeDisplay={lockTimeDisplay}
+        beat={beat}
+        challenge={challenge}
+        nickname={nickname}
+        setNickname={setNickname}
+        onJoin={handleJoin}
+        isJoining={isJoining}
+      />
+    );
+  }
+
+  // Before locksAt: joined, still writing
+  if (!hasSubmitted) {
+    const { barCount } = challenge;
+    const filledCount = barLines.filter((l) => l.trim().length > 0).length;
+    const isValid = barLines.length === barCount && barLines.every((l) => l.trim().length > 0);
+    return (
+      <>
+        <div className="space-y-4 pb-36">
+          {/* Live status header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              <span className="text-xs font-semibold uppercase tracking-widest text-zinc-400">
+                Live Challenge
+              </span>
+            </div>
+            <span className="text-xs text-amber-400 font-semibold bg-amber-400/10 px-2 py-1 rounded-full">
+              Locks at {lockTimeDisplay}
+            </span>
+          </div>
+          <BeatPlayer beat={beat} />
+          {barLines.length === barCount ? (
+            <LyricPuzzleCanvas
+              challenge={challenge}
+              lines={barLines}
+              onLineChange={onBarLineChange}
+              disabled={isSubmitting}
+            />
+          ) : (
+            <div className="h-32 flex items-center justify-center">
+              <p className="text-zinc-600 text-sm">Loading canvas...</p>
+            </div>
+          )}
+        </div>
+        {/* Sticky submit */}
+        <div className="fixed bottom-0 inset-x-0 z-50 pointer-events-none">
+          <div
+            className="max-w-sm mx-auto px-5 pb-7 pt-6 pointer-events-auto"
+            style={{ background: "linear-gradient(to top, rgb(9,9,11) 60%, rgba(9,9,11,0.85) 85%, transparent 100%)" }}
+          >
+            {!isValid && filledCount > 0 && (
+              <p className="text-xs text-amber-400 text-center mb-2">
+                {barCount - filledCount} more bar{barCount - filledCount !== 1 ? "s" : ""} needed
+              </p>
+            )}
+            <button
+              onClick={handleSubmit}
+              disabled={!isValid || isSubmitting}
+              className={cn(
+                "w-full font-black text-lg py-4 rounded-2xl transition-all active:scale-95",
+                "bg-gradient-to-r from-violet-600 to-purple-600 text-white",
+                "hover:from-violet-500 hover:to-purple-500",
+                "shadow-lg shadow-violet-900/50",
+                "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
+              )}
+            >
+              {isSubmitting ? "Submitting..." : "Submit Bars 🔥"}
+            </button>
+            <p className="text-xs text-zinc-600 text-center mt-2">
+              Submissions and voting are open until {lockTimeDisplay}.
+            </p>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // Before locksAt: joined and submitted — show voting + share
+  return (
+    <ChallengeLiveView
+      submissions={submissions}
+      selectedId={selectedSubmissionId}
+      setSelectedId={setSelectedSubmissionId}
+      hasVoted={hasVoted}
+      isVoting={isVoting}
+      onVote={handleVote}
+      lockTimeDisplay={lockTimeDisplay}
+      roomCode={roomCode}
+      submittedCount={submittedCount}
+    />
+  );
+}
+
+// Join screen for CHALLENGE_LINK rooms
+function ChallengeLinkJoinView({
+  hostNickname, lockTimeDisplay, beat, challenge, nickname, setNickname, onJoin, isJoining,
+}: {
+  hostNickname: string | null;
+  lockTimeDisplay: string;
+  beat: RoomStateDTO["beat"];
+  challenge: RoomStateDTO["challenge"];
+  nickname: string;
+  setNickname: (v: string) => void;
+  onJoin: () => void;
+  isJoining: boolean;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="text-center pt-4">
+        <div className="text-4xl mb-3">🎤</div>
+        {hostNickname ? (
+          <>
+            <p className="text-amber-400 text-xs font-black uppercase tracking-widest mb-2">Challenge</p>
+            <h1 className="font-black text-2xl leading-tight mb-1">{hostNickname} challenged you</h1>
+          </>
+        ) : (
+          <h1 className="font-black text-2xl mb-1">Today&apos;s Rhyzzle</h1>
+        )}
+        <p className="text-zinc-400 text-sm mt-1">
+          Submit your bars and vote before {lockTimeDisplay}.
+        </p>
+      </div>
+
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center text-lg flex-shrink-0">🎵</div>
+        <div>
+          <p className="text-white font-semibold text-sm">{beat.title}</p>
+          <p className="text-zinc-500 text-xs">{beat.bpm} BPM · {challenge.barCount} bars</p>
+        </div>
+        <span className="ml-auto text-xs text-green-400 font-semibold bg-green-400/10 px-2 py-1 rounded-full flex-shrink-0">
+          Live until {lockTimeDisplay}
+        </span>
+      </div>
+
+      <div className="space-y-3">
+        <input
+          type="text"
+          value={nickname}
+          onChange={(e) => setNickname(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onJoin()}
+          placeholder="Your name"
+          maxLength={20}
+          autoFocus
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-4 text-white placeholder-zinc-600 text-lg font-semibold focus:outline-none focus:border-amber-400 transition-colors"
+        />
+        <button
+          onClick={onJoin}
+          disabled={isJoining || !nickname.trim()}
+          className="w-full bg-amber-400 text-zinc-950 font-black text-lg py-4 rounded-2xl hover:bg-amber-300 active:scale-95 transition-all disabled:opacity-50"
+        >
+          {isJoining ? "Joining..." : "Join Challenge →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Post-submit view for CHALLENGE_LINK rooms before locksAt — voting + share
+function ChallengeLiveView({
+  submissions, selectedId, setSelectedId, hasVoted, isVoting, onVote,
+  lockTimeDisplay, roomCode, submittedCount,
+}: {
+  submissions: NonNullable<RoomStateDTO["submissions"]>;
+  selectedId: string | null;
+  setSelectedId: (id: string) => void;
+  hasVoted: boolean;
+  isVoting: boolean;
+  onVote: () => void;
+  lockTimeDisplay: string;
+  roomCode: string;
+  submittedCount: number;
+}) {
+  const [shareCopied, setShareCopied] = useState(false);
+  const otherSubs = submissions.filter((s) => !s.isOwnSubmission);
+
+  async function handleShareLink() {
+    const url = getRoomUrl(roomCode);
+    const text = `Can you beat me? Write to the same beat and prompt. ${url}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Rhyzzle challenge", text, url });
+      } else {
+        await navigator.clipboard.writeText(text);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2500);
+      }
+    } catch { /* dismissed */ }
+  }
+
+  return (
+    <div className="space-y-4 pb-4">
+      {/* Live status card */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <p className="font-black text-white">🔥 Bars submitted!</p>
+          </div>
+          <span className="text-xs text-amber-400 font-semibold bg-amber-400/10 px-2.5 py-1 rounded-full">
+            Locks at {lockTimeDisplay}
+          </span>
+        </div>
+        <p className="text-zinc-500 text-sm">
+          {submittedCount > 1
+            ? `${submittedCount} submissions in. Voting is open.`
+            : "Waiting for challengers. Send the link."}
+        </p>
+        {submittedCount >= 2 && (
+          <p className="text-xs text-zinc-600 mt-1">
+            Votes can change before {lockTimeDisplay}.
+          </p>
+        )}
+      </div>
+
+      {/* Voting area */}
+      {otherSubs.length === 0 ? (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 text-center">
+          <div className="text-3xl mb-3">⏳</div>
+          <p className="font-semibold text-white mb-1">Waiting for challengers</p>
+          <p className="text-zinc-500 text-sm">First one to submit gets the jump. Send the link.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+            <p className="text-xs font-semibold uppercase tracking-widest text-zinc-400">Who cooked?</p>
+          </div>
+
+          {submissions.map((sub, i) => {
+            const isOwn = sub.isOwnSubmission ?? false;
+            const isSelected = selectedId === sub.id;
+            return (
+              <button
+                key={sub.id}
+                onClick={() => !isOwn && setSelectedId(sub.id)}
+                disabled={isOwn}
+                className={cn(
+                  "w-full text-left p-4 rounded-2xl border-2 transition-all",
+                  isOwn
+                    ? "border-zinc-800 bg-zinc-900/50 opacity-70 cursor-not-allowed"
+                    : isSelected
+                    ? "border-amber-400 bg-amber-400/10 shadow-lg shadow-amber-900/20"
+                    : "border-zinc-800 bg-zinc-900 hover:border-zinc-600 active:scale-[0.99]"
+                )}
+              >
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="text-xs font-black uppercase tracking-widest text-zinc-500">
+                    {isOwn ? "Your submission" : `Submission ${String.fromCharCode(65 + i)}`}
+                  </span>
+                  {isSelected && !isOwn && (
+                    <span className="text-xs text-amber-400 font-black">
+                      {hasVoted ? "✓ Your vote" : "✓ Selected"}
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  {sub.lines.map((line) => (
+                    <p key={line.id} className="text-sm text-zinc-200 leading-relaxed">{line.text}</p>
+                  ))}
+                </div>
+              </button>
+            );
+          })}
+
+          <button
+            onClick={onVote}
+            disabled={!selectedId || isVoting}
+            className={cn(
+              "w-full font-black text-lg py-4 rounded-2xl transition-all active:scale-95",
+              "bg-gradient-to-r from-blue-600 to-blue-500 text-white",
+              "shadow-lg shadow-blue-900/40",
+              "disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
+            )}
+          >
+            {isVoting ? "Voting..." : hasVoted ? "Change Vote →" : "Cast Vote"}
+          </button>
+
+          {hasVoted && (
+            <p className="text-xs text-zinc-600 text-center">
+              Votes can change until results lock at {lockTimeDisplay}.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Share card */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+        <p className="text-xs text-zinc-500 font-black uppercase tracking-widest mb-1">Send to Group Chat</p>
+        <p className="text-zinc-400 text-xs leading-relaxed mb-3">
+          More submissions = better battle. Link expires at {lockTimeDisplay}.
+        </p>
+        <div className="bg-zinc-800 rounded-xl px-3 py-2.5 mb-3">
+          <p className="text-zinc-300 text-xs font-mono break-all">{getRoomUrl(roomCode)}</p>
+        </div>
+        <button
+          onClick={handleShareLink}
+          className="w-full bg-amber-400 text-zinc-950 font-black text-sm py-3 rounded-xl hover:bg-amber-300 active:scale-95 transition-all"
+        >
+          {shareCopied ? "✓ Link copied!" : "🔗 Send to Group Chat"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Final results view for CHALLENGE_LINK rooms after locksAt
+function ChallengeFinalView({
+  submissions, onShare, copied,
+}: {
+  submissions: NonNullable<RoomStateDTO["submissions"]>;
+  onShare: () => void;
+  copied: boolean;
+}) {
+  const sorted = [...submissions].sort((a, b) => b.voteCount - a.voteCount);
+  const maxVotes = sorted[0]?.voteCount ?? 0;
+  const winners = sorted.filter((s) => s.voteCount === maxVotes && maxVotes > 0);
+  const isTie = winners.length > 1;
+  const runnerUps = sorted.filter((s) => !winners.includes(s));
+  const noVotes = maxVotes === 0;
+
+  return (
+    <div className="space-y-5 pb-6">
+      <div className="text-center pt-2">
+        <p className="text-xs text-zinc-500 font-semibold uppercase tracking-widest mb-2">Final Results</p>
+        <div className="text-5xl mb-3">{noVotes ? "📜" : isTie ? "🤝" : "👑"}</div>
+        {noVotes ? (
+          <>
+            <h2 className="font-black text-2xl">No votes this round</h2>
+            <p className="text-zinc-400 text-sm mt-1">Results locked. All submissions below.</p>
+          </>
+        ) : isTie ? (
+          <>
+            <h2 className="font-black text-2xl">It&apos;s a tie!</h2>
+            <p className="text-zinc-400 text-sm mt-1">
+              {winners.map((w) => w.nickname).join(" & ")} — {maxVotes} vote{maxVotes !== 1 ? "s" : ""} each
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 className="font-black text-2xl">{winners[0]?.nickname ?? "???"} cooked</h2>
+            <p className="text-zinc-400 text-sm mt-1">
+              {maxVotes} vote{maxVotes !== 1 ? "s" : ""}
+            </p>
+          </>
+        )}
+      </div>
+
+      {winners.map((w) => (
+        <div key={w.id} className="bg-amber-400/10 border-2 border-amber-400/40 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-amber-400 text-xs font-black uppercase tracking-widest">
+              {isTie ? "Tied" : "Winner"}
+            </span>
+            <span className="text-amber-400 font-black text-sm">{w.nickname}</span>
+            <span className="ml-auto text-xs text-amber-600 font-semibold">
+              {w.voteCount} vote{w.voteCount !== 1 ? "s" : ""}
+            </span>
+          </div>
+          <div className="space-y-1.5">
+            {w.lines.map((line) => (
+              <p key={line.id} className="text-sm text-zinc-100 leading-relaxed">{line.text}</p>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {runnerUps.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-xs text-zinc-600 uppercase tracking-widest font-semibold px-1">
+            {noVotes ? "All submissions" : "Other submissions"}
+          </p>
+          {runnerUps.map((sub, i) => (
+            <div key={sub.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-sm text-zinc-200">
+                  {noVotes ? sub.nickname : `#${winners.length + i + 1} ${sub.nickname}`}
+                </span>
+                {!noVotes && (
+                  <span className="text-xs text-zinc-600">
+                    {sub.voteCount} vote{sub.voteCount !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1">
+                {sub.lines.map((line) => (
+                  <p key={line.id} className="text-xs text-zinc-400 leading-relaxed">{line.text}</p>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-3 pt-2">
+        <button
+          onClick={onShare}
+          className="w-full border border-zinc-700 text-zinc-300 font-semibold py-3.5 rounded-2xl hover:border-zinc-600 transition-all text-sm"
+        >
+          {copied ? "✓ Copied!" : "Copy Results"}
+        </button>
+        <Link
+          href="/play"
+          className="block w-full bg-amber-400 text-zinc-950 font-black py-3.5 rounded-2xl text-center text-base hover:bg-amber-300 transition-all active:scale-95"
+        >
+          Play Today&apos;s Rhyzzle →
+        </Link>
+        <Link
+          href="/create"
+          className="block w-full border border-zinc-800 text-zinc-400 font-semibold py-3.5 rounded-2xl text-center text-sm hover:border-zinc-700 hover:text-zinc-300 transition-all"
+        >
+          Start New Challenge
+        </Link>
+      </div>
+    </div>
+  );
+}
+

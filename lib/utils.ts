@@ -87,6 +87,24 @@ export function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+// ─── Challenge Link Lock Time ──────────────────────────────────────────────
+
+/**
+ * Returns the next 9 PM lock time as an ISO string.
+ * Uses Node.js process timezone — set TZ env var for consistent server behavior
+ * (e.g. TZ=America/New_York). Client displays in browser local time.
+ * If 9 PM has already passed today, returns tomorrow at 9 PM.
+ */
+export function getDefaultLocksAt(): string {
+  const now = new Date();
+  const target = new Date(now);
+  target.setHours(21, 0, 0, 0);
+  if (target <= now) {
+    target.setDate(target.getDate() + 1);
+  }
+  return target.toISOString();
+}
+
 // ─── Room URL ─────────────────────────────────────────────────────────────
 
 export function getRoomUrl(roomCode: string, baseUrl?: string): string {

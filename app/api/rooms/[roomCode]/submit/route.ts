@@ -35,11 +35,24 @@ export async function POST(
       return NextResponse.json({ error: "Room not found" }, { status: 404 });
     }
 
-    if (room.status !== "WRITING") {
-      return NextResponse.json(
-        { error: "Room is not in the writing phase" },
-        { status: 400 }
-      );
+    if (room.roomMode === "CHALLENGE_LINK") {
+      // Challenge links: allow submission anytime before locksAt
+      const locksAt = room.locksAt;
+      const isLocked = locksAt ? Date.now() >= new Date(locksAt).getTime() : false;
+      if (isLocked) {
+        return NextResponse.json(
+          { error: "Today's Rhyzzle is locked. Final results are live." },
+          { status: 400 }
+        );
+      }
+    } else {
+      // GROUP_ROOM: must be in WRITING state
+      if (room.status !== "WRITING") {
+        return NextResponse.json(
+          { error: "Room is not in the writing phase" },
+          { status: 400 }
+        );
+      }
     }
 
     const participant = room.participants.find((p) => p.id === participantCookie);

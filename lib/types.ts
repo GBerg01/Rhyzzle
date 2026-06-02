@@ -122,8 +122,8 @@ export interface ConstraintResultDTO {
 // ─── Room State (returned by GET /api/rooms/[roomCode]) ───────────────────
 
 // How this room was created — controls voting permissions and UX copy.
-// CHALLENGE_LINK: solo daily play → "Challenge Friends"; any submitted participant can start voting.
-// GROUP_ROOM: host-led room (DAILY_CHALLENGE or legacy custom); host-only starts voting.
+// CHALLENGE_LINK: locksAt-driven (no state machine). Submit and vote anytime before locksAt.
+// GROUP_ROOM: host-led state machine (LOBBY → WRITING → VOTING → REVEAL).
 export type RoomMode = "CHALLENGE_LINK" | "GROUP_ROOM";
 
 export interface RoomStateDTO {
@@ -135,6 +135,12 @@ export interface RoomStateDTO {
   votingMode: VotingMode;
   roomMode: RoomMode;
   deadline: string | null;
+  // CHALLENGE_LINK only: ISO timestamp when submissions and voting lock.
+  // null for GROUP_ROOM rooms. Set at creation, never changes.
+  locksAt: string | null;
+  // Computed server-side at GET time: true if Date.now() >= locksAt.
+  // Always false in stored state. GROUP_ROOM always false.
+  isLocked: boolean;
   beat: BeatDTO;
   challenge: ChallengeDTO;
   participants: ParticipantDTO[];
@@ -147,9 +153,13 @@ export interface RoomStateDTO {
   currentParticipantHasSubmitted: boolean;
   // True if the current participant has already cast their vote
   currentParticipantHasVoted: boolean;
+  // CHALLENGE_LINK: which submissionId this participant last voted for (null = hasn't voted).
+  // Always null in stored state; computed per-requester at GET time.
+  currentParticipantVotedForId: string | null;
   // How many participants have voted (shown in VOTING state)
   votedCount: number;
-  // Only present in VOTING and REVEAL states
+  // GROUP_ROOM: present in VOTING and REVEAL states.
+  // CHALLENGE_LINK: present whenever there are submissions (for voting UI).
   submissions?: SubmissionDTO[];
 }
 

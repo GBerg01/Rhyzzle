@@ -4,7 +4,13 @@ import { generateSessionToken } from "@/lib/utils";
 import { getRoom, updateRoom } from "@/lib/room-store";
 
 // POST /api/rooms/[roomCode]/join
-// Adds a participant to the room in the in-memory store (dev).
+// Adds a participant to the room. Allowed states depend on roomMode:
+//
+//   LOBBY (any mode)          — always allowed
+//   WRITING + CHALLENGE_LINK  — allowed (friend joining to write their bars)
+//   VOTING  + CHALLENGE_LINK  — allowed (late spectator joining to vote)
+//   everything else           — blocked with contextual error
+//
 // Phase 1 DB: replace store calls with prisma.guestUser.create + prisma.roomParticipant.create
 export async function POST(
   req: NextRequest,
@@ -24,9 +30,31 @@ export async function POST(
       return NextResponse.json({ error: "Room not found" }, { status: 404 });
     }
 
-    if (room.status !== "LOBBY") {
+    const { status, roomMode } = room;
+    const isChallenge = roomMode === "CHALLENGE_LINK";
+
+    // Determine whether this join is allowed
+    const canJoin =
+      status === "LOBBY" ||
+      (status === "WRITING" && isChallenge) ||
+      (status === "VOTING" && isChallenge);
+
+    if (!canJoin) {
+      // Provide a contextual error so the client can render a useful screen
+      if (status === "REVEAL" || status === "CLOSED") {
+        return NextResponse.json(
+          { error: "This round has ended.", roomStatus: status, roomMode },
+          { status: 400 }
+        );
+      }
+      if (isChallenge) {
+        return NextResponse.json(
+          { error: "Voting has already started — new bars are closed.", roomStatus: status, roomMode },
+          { status: 400 }
+        );
+      }
       return NextResponse.json(
-        { error: "Room is no longer accepting players" },
+        { error: "This group room's game has already started.", roomStatus: status, roomMode },
         { status: 400 }
       );
     }
@@ -36,7 +64,6 @@ export async function POST(
     const participantId = `p_${upperCode}_${Date.now()}`;
     const isFirstParticipant = room.participants.length === 0;
 
-    // Add participant to room state
     const updatedParticipants = [
       ...room.participants,
       {
@@ -53,7 +80,9 @@ export async function POST(
       totalCount: updatedParticipants.length,
     });
 
-    console.log(`[POST /api/rooms/${upperCode}/join] ${nickname} joined (isHost: ${isFirstParticipant})`);
+    console.log(
+      `[POST /api/rooms/${upperCode}/join] ${nickname} joined in ${status} state (isHost: ${isFirstParticipant})`
+    );
 
     const response: JoinRoomResponse = {
       participantId,
@@ -63,19 +92,9 @@ export async function POST(
     };
 
     const nextResponse = NextResponse.json(response, { status: 201 });
-    nextResponse.cookies.set("rhyzzle_session", sessionToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24,
-      path: "/",
-    });
-    // Also store participantId so subsequent requests can identify this user
-    nextResponse.cookies.set("rhyzzle_participant", participantId, {
-      httpOnly: true,
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24,
-      path: "/",
-    });
+    const cookieOpts = { httpOnly: true, sameSite: "lax" as const, maxAge: 60 * 60 * 24, path: "/" };
+    nextResponse.cookies.set("rhyzzle_session", sessionToken, cookieOpts);
+    nextResponse.cookies.set("rhyzzle_participant", participantId, cookieOpts);
 
     return nextResponse;
   } catch (err) {
