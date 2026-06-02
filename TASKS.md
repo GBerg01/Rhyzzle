@@ -38,7 +38,7 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 | `DONE` | Implement `GET /api/rooms/[roomCode]` | Returns room state from in-memory store | `app/api/rooms/[roomCode]/route.ts` |
 | `DONE` | Implement room page LOBBY state (functional) | Shows join form, participant list updates on poll | `app/room/[roomCode]/page.tsx` |
 | `DONE` | Implement client-side polling (4s interval) | Room page refreshes state without full page reload | `app/room/[roomCode]/page.tsx` |
-| `TODO` | Make BeatPlayer functional | Audio plays/pauses from a URL | `components/beat-player.tsx` |
+| `DONE` | Make BeatPlayer functional | Play/pause, loading state, error state with missing-file message, seek, timestamps; synthetic placeholder WAV added | `components/beat-player.tsx`, `public/beats/brooklyn-bounce.wav`, `lib/daily-challenge.ts` |
 | `DONE` | Mobile UI polish — LOBBY state | Host lands in lobby directly; invite link visible; guest join form works | `app/room/[roomCode]/page.tsx` |
 
 ---

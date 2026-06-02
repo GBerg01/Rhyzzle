@@ -87,6 +87,70 @@ Phase 0 complete. App runs (`pnpm dev`) and shows placeholder UI. Database schem
 
 ---
 
+## Session 14 — 2026-06-02
+
+**Goal:** Create a copyright-free synthetic placeholder beat so BeatPlayer can actually play audio during MVP testing.
+
+**What was done:**
+
+### `public/beats/brooklyn-bounce.wav` (new)
+- Generated entirely with Python stdlib (`wave`, `math`, `array`, `random`) — no ffmpeg, no external deps, no copyrighted audio
+- 24 seconds, 92 BPM, 44100 Hz, 16-bit signed PCM, mono, ~2 MB
+- Simple kick/snare/hi-hat pattern in 4/4:
+  - Kick: beats 1 & 3 — sine sweep (150→55 Hz) with exponential amplitude decay
+  - Snare: beats 2 & 4 — white noise + 200 Hz body tone
+  - Hi-hat: every 8th note (closed); open hat on "and of 2"
+
+### `lib/daily-challenge.ts`
+- `audioUrl`: `/beats/brooklyn-bounce.mp3` → `/beats/brooklyn-bounce.wav`
+- `durationSec`: 175 → 24 (matches the actual generated file)
+- Added comment noting it is a placeholder and how to replace
+
+### `public/beats/README.md`
+- Updated to document the WAV as a placeholder
+- Instructions for swapping in a licensed mp3 when ready
+
+**TypeScript:** `pnpm tsc --noEmit` — clean.
+
+**To replace with a real beat:** drop `public/beats/brooklyn-bounce.mp3`, update `audioUrl` and `durationSec` in `lib/daily-challenge.ts`, delete the WAV.
+
+---
+
+## Session 13 — 2026-06-02
+
+**Goal:** Make BeatPlayer play real audio. Add graceful missing-file state so the app doesn't silently fail when no mp3 is present.
+
+**What was done:**
+
+### `components/beat-player.tsx`
+- Added `AudioState = "idle" | "loading" | "ready" | "error"` type
+- Listens to `loadstart` → "loading", `loadedmetadata`/`canplay` → "ready", `error` → "error"
+- Also checks `audio.error` synchronously in useEffect to catch files that 404 before listeners attach
+- Play button: disabled + dimmed in "loading" and "error" states; shows ⏳ while loading
+- Seek range: disabled unless state is "ready"
+- Duration display: shows "—:——" while loading
+- Badge row: shows "Loading…" chip while loading; "🔁 LOOP" chip when ready; "Unavailable" chip in red when error
+- **Error state**: replaces waveform section with a red card: "Beat file missing" + `public/beats/<filename>` (filename extracted from `beat.audioUrl`, not hardcoded)
+- `togglePlay()`: catches `play()` rejection and sets error state (handles cases where metadata loaded but file can't play)
+- No design changes — visual identity preserved
+
+### `public/beats/README.md` (new)
+- Documents where to place mp3 files
+- Lists the required filename (`brooklyn-bounce.mp3`) and which file references it
+- Notes on CDN hosting for files > 10 MB
+- Notes that copyrighted audio must not be committed
+
+**Beat URL:** `lib/daily-challenge.ts` already points to `/beats/brooklyn-bounce.mp3` — correct, no change needed.
+
+**TypeScript:** `pnpm tsc --noEmit` — clean.
+
+**Known limitations:**
+- `preload="metadata"` fetches file headers but not the full file — on slow connections the play button may still be briefly disabled after first tap while the browser buffers
+- No loading spinner animation (hourglass emoji only)
+- Cover art (`/beats/covers/brooklyn-bounce.jpg`) is not wired up — falls back to emoji
+
+---
+
 ## Session 12 — 2026-06-02
 
 **Goal:** Improve error recovery for the solo play → Challenge Friends → room creation flow. Prevent users from getting stuck after a failed API call. Improve server-side error messages.

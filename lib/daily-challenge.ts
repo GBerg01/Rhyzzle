@@ -27,14 +27,16 @@ export interface DailyChallengeVariant {
 
 // ─── Today's Beat ─────────────────────────────────────────────────────────────
 
+// audioUrl points to a synthetic placeholder WAV (public/beats/brooklyn-bounce.wav).
+// Replace with a licensed mp3 and update the path + durationSec when ready.
 export const DAILY_BEAT = {
   id: "beat_daily",
   title: "Midnight Bounce",
   artist: "Rhyzzle House",
-  audioUrl: "/beats/brooklyn-bounce.mp3",
+  audioUrl: "/beats/brooklyn-bounce.wav",
   bpm: 92,
   genre: "East Coast",
-  durationSec: 175,
+  durationSec: 24,
   coverUrl: "/beats/covers/brooklyn-bounce.jpg",
   tags: ["east-coast", "bounce", "classic"],
 };
