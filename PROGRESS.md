@@ -899,3 +899,38 @@ Full create → room lobby flow works correctly. Host lands directly in lobby wi
 3. Implement WRITING state fully — beat player + challenge card + bar editor functional
 4. Implement VOTING state — anonymous submissions displayed, one vote per participant
 5. Implement REVEAL state — show winner, de-anonymize names
+
+---
+
+## Session 19 — 2026-06-02
+
+**Goal:** Multi-condition rule chips per line, SIMILE category, highlight color legend, metaphor/simile distinction, live detected-phrase display.
+
+**What was done:**
+
+### Foundation types
+- `lib/types.ts` — added `"SIMILE"` to `HighlightCategory` union
+- `prisma/schema.prisma` — added `SIMILE` to `HighlightCategory` enum; ran `pnpm prisma generate`
+- `lib/utils.ts` — added SIMILE entries to `HIGHLIGHT_COLORS` (dark bg: teal-500/20) and `HIGHLIGHT_COLORS_LIGHT` (teal-100)
+- `lib/rule-checks/types.ts` — added `SIMILE: "teal"` to `CATEGORY_COLOR`
+
+### Metaphor/simile fix
+- `lib/rule-checks/ai-placeholder.ts` — `checkMetaphor` now emits `category: "SIMILE"` for simile patterns ("like a/an/the", "feel like", etc.) and `category: "METAPHOR"` for true metaphor patterns. "So open like a window" correctly gets SIMILE, not METAPHOR.
+
+### Multi-chip system
+- `lib/lyric-meta.ts` — new `LineChip` interface and `getLineAllChips(lineIndex, challenge, scheme)` function. Returns primary chip (highest-priority explicit rule) + optional secondary chips. Adds secondary RHYME ↔ Ln chip when the line has a rhyme relationship that isn't already covered by an explicit rhyme rule.
+- `components/lyric-puzzle-canvas.tsx` — computes `getLineAllChips()` per line; renders all chips as buttons (primary: text-[10px], secondary: text-[9px] opacity-80); removed old `↔ line N` text span (now inside secondary chip label)
+- `components/submission-pattern-card.tsx` — renders all chips per row (primary full-size, secondary text-[8px] opacity-75); no status indicators (inline highlights are the evidence)
+
+### Live metaphor/simile distinction
+- `lib/rule-checks/live-checks.ts` — added `detectedPhrase: string | null` to `LineHint`; metaphor case now checks `highlights[0].category === "SIMILE"` and shows "Simile detected ~" vs "Metaphor detected ✓"; `detectedPhrase` set from first highlight's text
+- `components/lyric-puzzle-canvas.tsx` — shows detected phrase pill below input when `hint.detectedPhrase` is set (teal-50 styling)
+
+### Highlight legend
+- New `components/highlight-key.tsx` — compact 8-entry color legend with copy: "Row colors show the assignment. Highlights show what Rhyzzle detected."
+- `app/play/[barCount]/page.tsx` — `<HighlightKey />` rendered below `SubmissionPatternCard` in post-submit screen
+
+**TypeScript:** `pnpm tsc --noEmit` — clean.
+
+**Status after this session:**
+Multi-chip display live across canvas and result cards. SIMILE/METAPHOR correctly distinguished at both the heuristic detection and highlight level. "like a window" → SIMILE chip + teal highlight. Detected phrase shown while typing. Highlight legend on post-submit screen. All pushed to origin/main.
