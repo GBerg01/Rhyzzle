@@ -15,6 +15,7 @@ import { BeatPlayer } from "@/components/beat-player";
 import { LyricPuzzleCanvas } from "@/components/lyric-puzzle-canvas";
 import { SubmissionPatternCard } from "@/components/submission-pattern-card";
 import { HighlightKey } from "@/components/highlight-key";
+import { RhyzzleChecklist } from "@/components/rhyzzle-checklist";
 import { cn, copyToClipboard } from "@/lib/utils";
 import type { BeatDTO, SubmissionLineDTO } from "@/lib/types";
 import { runRuleChecks } from "@/lib/rule-checks/run-rule-checks";
@@ -227,6 +228,8 @@ export default function DailyPlayPage() {
             lines={barLines}
             onLineChange={handleLineChange}
           />
+
+          <RhyzzleChecklist lines={barLines} challenge={challenge} />
         </div>
 
         <div className="fixed bottom-0 inset-x-0 z-50 pointer-events-none">
