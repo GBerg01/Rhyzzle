@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import type { ChallengeDTO } from "@/lib/types";
+import type { ChallengeDTO, HighlightCategory } from "@/lib/types";
 import type { RuleHelpKey } from "@/lib/rule-help";
 import { RuleHelpSheet } from "@/components/rule-help-sheet";
 import { buildMeta, C, letterColor, getLineAllChips, type LineColor } from "@/lib/lyric-meta";
 import { runLiveChecks, type LiveCheckState } from "@/lib/rule-checks/live-checks";
+import { getLiveHighlightSpans } from "@/lib/rule-checks/live-highlights";
+import type { ComputedHighlightSpan } from "@/lib/rule-checks/types";
 
 // ─── Focus indicator — 3px colored left strip when a row is active ────────────
 
@@ -33,6 +35,93 @@ const CANVAS_BORDER_FOCUSED: Record<LineColor, string> = {
   zinc:   "border-zinc-300/60",
 };
 
+// Caret color to use when input text is transparent (hex value matching col.textDark)
+const CARET_COLOR: Record<LineColor, string> = {
+  yellow: "#451a03", // amber-950
+  cyan:   "#083344", // cyan-950
+  green:  "#052e16", // green-950
+  purple: "#2e1065", // purple-950
+  pink:   "#500724", // pink-950
+  amber:  "#451a03", // amber-950
+  orange: "#431407", // orange-950
+  zinc:   "#3f3f46", // zinc-700
+};
+
+// ─── Overlay highlight colors ──────────────────────────────────────────────────
+// Background-only (no padding) so character positions stay aligned with the input.
+// Uses RGB arrays so we can vary alpha by confidence level.
+
+type RGB = [number, number, number];
+
+const LIVE_HL_RGB: Partial<Record<HighlightCategory, RGB>> = {
+  END_RHYME:      [147, 197, 253], // blue-300
+  INTERNAL_RHYME: [103, 232, 249], // cyan-300
+  ALLITERATION:   [253, 186, 116], // orange-300
+  METAPHOR:       [134, 239, 172], // green-300
+  SIMILE:         [94,  234, 212], // teal-300
+  REQUIRED_WORD:  [252, 211,  77], // amber-300
+  PUNCHLINE:      [196, 181, 253], // purple-300
+  CALLBACK:       [249, 168, 212], // pink-300
+};
+
+function hlBg(category: HighlightCategory, confidence: number): string | undefined {
+  const rgb = LIVE_HL_RGB[category];
+  if (!rgb) return undefined;
+  // High confidence (exact rhyme, deterministic): strong alpha
+  // Lower confidence (slant rhyme, heuristic): softer alpha
+  const alpha = confidence >= 0.8 ? 0.78 : 0.45;
+  return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
+}
+
+// ─── Inline overlay text renderer ─────────────────────────────────────────────
+// Renders text with colored background spans behind the characters.
+// No horizontal padding — alignment must stay exact.
+
+interface LiveHighlightTextProps {
+  text: string;
+  spans: ComputedHighlightSpan[];
+  textClass: string; // col.textDark class — colors non-highlighted text
+}
+
+function LiveHighlightText({ text, spans, textClass }: LiveHighlightTextProps) {
+  if (!text) return null;
+
+  const valid = [...spans]
+    .filter((s) => s.startIndex >= 0 && s.endIndex <= text.length && s.startIndex < s.endIndex)
+    .sort((a, b) => a.startIndex - b.startIndex);
+
+  if (!valid.length) {
+    return <span className={textClass}>{text}</span>;
+  }
+
+  const segs: { text: string; category?: HighlightCategory; confidence?: number }[] = [];
+  let pos = 0;
+  for (const s of valid) {
+    if (s.startIndex < pos) continue; // skip overlapping
+    if (s.startIndex > pos) segs.push({ text: text.slice(pos, s.startIndex) });
+    segs.push({ text: text.slice(s.startIndex, s.endIndex), category: s.category, confidence: s.confidence });
+    pos = s.endIndex;
+  }
+  if (pos < text.length) segs.push({ text: text.slice(pos) });
+
+  return (
+    <span className={textClass}>
+      {segs.map((seg, i) => {
+        const bg = seg.category ? hlBg(seg.category, seg.confidence ?? 1) : undefined;
+        if (!bg) return <span key={i}>{seg.text}</span>;
+        return (
+          <span
+            key={i}
+            style={{ backgroundColor: bg, borderRadius: "2px" }}
+          >
+            {seg.text}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface LyricPuzzleCanvasProps {
@@ -49,16 +138,22 @@ export function LyricPuzzleCanvas({
   disabled = false,
 }: LyricPuzzleCanvasProps) {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const overlayRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [activeHelpKey, setActiveHelpKey] = useState<RuleHelpKey | null>(null);
   const [focusedLine, setFocusedLine] = useState<number | null>(null);
 
-  // Live check state — debounced 300ms so it doesn't fire on every keystroke
+  // Live check state (hints) + live highlight spans — both debounced 300ms
   const [liveState, setLiveState] = useState<LiveCheckState>(() =>
     runLiveChecks(lines, challenge),
   );
+  const [liveSpans, setLiveSpans] = useState<ComputedHighlightSpan[][]>(() =>
+    getLiveHighlightSpans(lines, challenge),
+  );
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setLiveState(runLiveChecks(lines, challenge));
+      setLiveSpans(getLiveHighlightSpans(lines, challenge));
     }, 300);
     return () => clearTimeout(timer);
   // challenge is stable for the lifetime of a writing session
@@ -72,6 +167,11 @@ export function LyricPuzzleCanvas({
   const allFilled = filledCount === challenge.barCount && lines.every((l) => l.trim().length > 0);
 
   const focusedColor = focusedLine !== null ? meta[focusedLine]?.chip.color : null;
+
+  function syncOverlayScroll(i: number, scrollLeft: number) {
+    const overlay = overlayRefs.current[i];
+    if (overlay) overlay.scrollLeft = scrollLeft;
+  }
 
   function handleKeyDown(i: number, e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && i < challenge.barCount - 1) {
@@ -157,17 +257,18 @@ export function LyricPuzzleCanvas({
           const col = C[m.chip.color];
           const hint = liveState.lineHints[i];
           const chips = allLineChips[i];
+          const lineSpans = liveSpans[i] ?? [];
+          const hasSpans = lineSpans.length > 0 && !disabled;
 
           return (
             <div
               key={i}
               className={cn(
                 "flex items-stretch border-b border-zinc-100/80 last:border-b-0 transition-colors duration-150 relative",
-                // Always keep the row colored — remove the old isEmpty → white fallback
                 isFocused ? col.rowFocused : col.row,
               )}
             >
-              {/* Colored focus strip — 3px left indicator when this row is active */}
+              {/* Colored focus strip */}
               {isFocused && (
                 <div
                   className={cn(
@@ -178,7 +279,7 @@ export function LyricPuzzleCanvas({
                 />
               )}
 
-              {/* Gutter: line number + scheme badge — always colored */}
+              {/* Gutter: line number + scheme badge */}
               <div
                 className={cn(
                   "flex flex-col items-center justify-center gap-1 py-3 border-r border-zinc-100/60 flex-shrink-0 select-none transition-colors duration-150",
@@ -190,7 +291,6 @@ export function LyricPuzzleCanvas({
                 <span className="text-xs font-black text-zinc-500 leading-none tabular-nums">
                   {i + 1}
                 </span>
-                {/* Scheme badge — always colored regardless of content */}
                 <span
                   className={cn(
                     "text-[10px] font-black rounded px-1 py-0.5 leading-none",
@@ -201,9 +301,9 @@ export function LyricPuzzleCanvas({
                 </span>
               </div>
 
-              {/* Content: chips + input + hints */}
+              {/* Content: chips + overlay input + hints */}
               <div className="flex-1 flex flex-col justify-center gap-1 px-3 py-2.5 min-w-0">
-                {/* Rule chip row — all chips for this line, then status */}
+                {/* Rule chip row */}
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {chips.map((chip, cidx) => {
                     const chipCol = C[chip.color];
@@ -250,27 +350,64 @@ export function LyricPuzzleCanvas({
                   )}
                 </div>
 
-                {/* Text input — color-tinted text tied to row identity */}
-                <input
-                  ref={(el) => { inputRefs.current[i] = el; }}
-                  type="text"
-                  value={value}
-                  onChange={(e) => onLineChange(i, e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(i, e)}
-                  onFocus={() => setFocusedLine(i)}
-                  onBlur={() => setFocusedLine(null)}
-                  disabled={disabled}
-                  placeholder={value.trim() === "" ? m.chip.placeholder : ""}
-                  className={cn(
-                    "w-full bg-transparent text-sm font-normal",
-                    "placeholder-zinc-400 outline-none leading-snug",
-                    col.textDark,
-                    disabled && "cursor-not-allowed",
+                {/* Input with live highlight overlay */}
+                <div className="relative">
+                  {/* Highlight overlay — sits behind input text via transparency */}
+                  {hasSpans && (
+                    <div
+                      ref={(el) => { overlayRefs.current[i] = el; }}
+                      className="absolute inset-0 pointer-events-none select-none overflow-hidden whitespace-nowrap flex items-center"
+                      aria-hidden
+                    >
+                      <LiveHighlightText
+                        text={value}
+                        spans={lineSpans}
+                        textClass={cn("text-sm font-normal leading-snug", col.textDark)}
+                      />
+                    </div>
                   )}
-                  autoCapitalize="sentences"
-                  autoCorrect="off"
-                  spellCheck={false}
-                />
+
+                  {/* Text input — transparent when overlay active */}
+                  <input
+                    ref={(el) => { inputRefs.current[i] = el; }}
+                    type="text"
+                    value={value}
+                    onChange={(e) => {
+                      onLineChange(i, e.target.value);
+                      // Sync overlay scroll after browser repaints the input
+                      requestAnimationFrame(() => {
+                        const input = inputRefs.current[i];
+                        if (input) syncOverlayScroll(i, input.scrollLeft);
+                      });
+                    }}
+                    onKeyDown={(e) => handleKeyDown(i, e)}
+                    onFocus={() => {
+                      setFocusedLine(i);
+                      requestAnimationFrame(() => {
+                        const input = inputRefs.current[i];
+                        if (input) syncOverlayScroll(i, input.scrollLeft);
+                      });
+                    }}
+                    onBlur={() => setFocusedLine(null)}
+                    onScroll={(e) => syncOverlayScroll(i, e.currentTarget.scrollLeft)}
+                    disabled={disabled}
+                    placeholder={value.trim() === "" ? m.chip.placeholder : ""}
+                    style={hasSpans
+                      ? { color: "transparent", caretColor: CARET_COLOR[m.chip.color] }
+                      : undefined
+                    }
+                    className={cn(
+                      "w-full bg-transparent text-sm font-normal relative z-10",
+                      "placeholder-zinc-400 outline-none leading-snug",
+                      // Only apply textDark when NOT showing overlay (overlay provides the color)
+                      !hasSpans && col.textDark,
+                      disabled && "cursor-not-allowed",
+                    )}
+                    autoCapitalize="sentences"
+                    autoCorrect="off"
+                    spellCheck={false}
+                  />
+                </div>
 
                 {/* Detected figurative phrase pill */}
                 {hint?.detectedPhrase && (
@@ -318,7 +455,7 @@ export function LyricPuzzleCanvas({
 
       {/* Guidance note */}
       <p className="text-[10px] text-zinc-500 text-center mt-2 leading-relaxed">
-        Live hints are guides. Humans still vote who cooked.
+        Live highlights are draft hints. Final checks run on submit.
       </p>
 
       {/* Rule help bottom sheet */}
