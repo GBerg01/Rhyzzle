@@ -934,3 +934,45 @@ Full create → room lobby flow works correctly. Host lands directly in lobby wi
 
 **Status after this session:**
 Multi-chip display live across canvas and result cards. SIMILE/METAPHOR correctly distinguished at both the heuristic detection and highlight level. "like a window" → SIMILE chip + teal highlight. Detected phrase shown while typing. Highlight legend on post-submit screen. All pushed to origin/main.
+
+---
+
+## Session 20 — 2026-06-02
+
+**Goal:** Live inline highlights in the writing canvas while typing.
+
+**Approach chosen: Option A — Overlay text highlighter**
+
+Each input row gets an absolutely-positioned `<div>` overlay that renders the full text with colored background spans (no horizontal padding, so character positions stay aligned). The `<input>` uses `color: transparent` + `caretColor` when spans are detected. Scroll is synced via `overlay.scrollLeft = input.scrollLeft` on `onChange` / `onScroll` / `onFocus` via `requestAnimationFrame`.
+
+**New file — `lib/rule-checks/live-highlights.ts`:**
+- `getLiveHighlightSpans(lines, challenge): ComputedHighlightSpan[][]` — one span array per line
+- Required words: amber highlight, appears immediately on whole-word match
+- End rhymes: blue highlight on end word once partner line has text (high opacity exact, soft opacity slant)
+- Alliteration: orange on each detected word (only for lines with ALLITERATION rule)
+- Metaphor/simile: green/teal phrase span (only for lines with METAPHOR rule)
+- Theme reference: green when theme word found
+- Punchline/callback: no spans (subjective — "→ submit" still shown)
+
+**Modified — `components/lyric-puzzle-canvas.tsx`:**
+- New `LiveHighlightText` component (local) — renders text with inline `backgroundColor` spans, no padding
+- `overlayRefs` array parallel to `inputRefs`
+- `CARET_COLOR` map: hex values matching `col.textDark` Tailwind palette
+- `LIVE_HL_RGB`: per-category RGB base colors, alpha varies by confidence (0.78 strong / 0.45 soft)
+- `liveSpans` state initialized from `getLiveHighlightSpans`, debounced 300ms with `liveState`
+- `hasSpans = lineSpans.length > 0 && !disabled` — controls overlay visibility and input transparency
+- Guidance note: "Live highlights are draft hints. Final checks run on submit."
+
+**Typing safety:**
+- Overlay is `pointer-events: none` — all taps/clicks go through to the input
+- Input is `z-index: 10` (relative), overlay is `position: absolute`
+- `color: transparent` only applied when spans exist (empty lines show text normally)
+- `requestAnimationFrame` for scroll sync avoids blocking the change handler
+- Disabled mode: `hasSpans = false` — overlay never shown, input normal
+
+**TypeScript:** `pnpm tsc --noEmit` — clean.
+
+**Known limitations:**
+- Very long bars (60+ chars on narrow screens) may show highlight misalignment past the overflow point; scroll sync mitigates this
+- Slant rhyme highlights use soft opacity (0.45) and only appear after partner line has text
+- Subjective rules (punchline, callback, internal rhyme, assonance) still show "→ submit" — no overlay spans
