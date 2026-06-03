@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { BeatPlayer } from "@/components/beat-player";
 import { LyricPuzzleCanvas } from "@/components/lyric-puzzle-canvas";
+import { RhyzzleChecklist } from "@/components/rhyzzle-checklist";
 import { SubmissionPatternCard } from "@/components/submission-pattern-card";
 import type { RoomStateDTO, SubmissionDTO } from "@/lib/types";
 import { getRoomUrl, copyToClipboard, cn } from "@/lib/utils";
@@ -794,6 +795,10 @@ function WritingView({
             <p className="text-zinc-600 text-sm">Loading canvas...</p>
           </div>
         )}
+
+        {barLines.length === barCount && (
+          <RhyzzleChecklist lines={barLines} challenge={challenge} />
+        )}
       </div>
 
       <div className="fixed bottom-0 inset-x-0 z-50 pointer-events-none">
@@ -1151,6 +1156,10 @@ function ChallengeLinkView({
             <div className="h-32 flex items-center justify-center">
               <p className="text-zinc-600 text-sm">Loading canvas...</p>
             </div>
+          )}
+
+          {barLines.length === barCount && (
+            <RhyzzleChecklist lines={barLines} challenge={challenge} />
           )}
         </div>
         <div className="fixed bottom-0 inset-x-0 z-50 pointer-events-none">
