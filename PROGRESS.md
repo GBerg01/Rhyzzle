@@ -1036,3 +1036,46 @@ Live checklist shipped. Shows bar count, required word chips, rhyme group pass/s
 
 **Status after this session:**
 Checklist is now live in all three writing contexts: solo `/play/[barCount]`, GROUP_ROOM writing phase, and CHALLENGE_LINK writing phase. Updates on every keystroke (300ms debounce). Does not block submit. Does not affect live highlights, voting, or reveal.
+
+---
+
+## Session 23 — 2026-06-02
+
+**Goal:** Full end-to-end QA pass of the MVP loop. No new features — find and fix bugs only.
+
+**What was tested (code review):**
+
+- Flow A (Solo Daily → Challenge Link): `/play/[barCount]` writing phase, checklist, live highlights, post-submit preview, Challenge Friends room creation — all code paths verified correct.
+- Flow B (Friend joins Challenge Link): join route allows WRITING+CHALLENGE_LINK, barLines init effect fires on `hasJoined`, canvas+checklist render after init — correct.
+- Flow C (Ranked voting): `ChallengeLiveView` vote tap/submit, delete-and-recreate re-ranking, Borda count computation, final results — correct.
+- Flow D (Group Room): LOBBY → WRITING → VOTING → REVEAL state machine, host-only controls, LateArrivalView for mid-game joins — correct.
+
+**Bug found and fixed: Submission label mismatch in voting views** (`app/room/[roomCode]/page.tsx`)
+
+- **Root cause:** `VotingView` and `ChallengeLiveView` labeled cards using the overall `submissions` array index `i`. The rank progress display used index within non-own submissions (`otherSubs`). When the viewer's own submission appeared at index 0, other submissions got labeled "Submission B, C" on cards but "A, B" in rankings — directly contradictory.
+- **Fix (VotingView):** Extracted `nonOwnSubs = submissions.filter(s => !s.isOwnSubmission)` before the map; used `nonOwnSubs.findIndex` for both the rank progress and card labels. Also replaced the inline `.filter().findIndex()` chain in the rank progress with the pre-computed `nonOwnSubs`.
+- **Fix (ChallengeLiveView):** `otherSubs` was already defined at the top of the component; changed card map to use `otherSubs.findIndex(s => s.id === sub.id)` for the label instead of `i`.
+
+**TypeScript:** `pnpm tsc --noEmit` — clean both before and after fix.
+
+**What passed:**
+1. TypeScript — clean ✓
+2. Next.js build — clean ✓
+3. Checklist present in all three writing states ✓
+4. Live highlights logic — correct ✓
+5. Challenge Friends creation — correct ✓
+6. Join route — allows CHALLENGE_LINK in WRITING state ✓
+7. Submit flow — isValid guard prevents empty bar submission ✓
+8. Ranked voting re-ranking (CHALLENGE_LINK delete-and-recreate) — correct ✓
+9. Borda count placement computation — correct ✓
+10. Clipboard fallbacks in both views — correct ✓
+11. No manual Start Voting for CHALLENGE_LINK — confirmed ✓
+
+**What failed (fixed):**
+- Submission labels "Submission B/C" on cards but "#1 A/#2 B" in ranking progress — fixed.
+
+**Known limitations (pre-existing, not new):**
+- No browser-based UI testing (no running server/browser). Code review only.
+- AI checks (metaphor, punchline, callback) are heuristic placeholders — Phase 5B.
+- DB not connected locally; `pnpm db:push` still pending.
+- Live highlights may misalign on very long bars (60+ chars) past overflow.
