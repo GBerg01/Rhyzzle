@@ -852,7 +852,8 @@ function VotingView({
   totalCount: number;
 }) {
   const canReveal = isHost && votedCount >= 1;
-  const votableCount = submissions.filter((s) => !s.isOwnSubmission).length;
+  const nonOwnSubs = submissions.filter((s) => !s.isOwnSubmission);
+  const votableCount = nonOwnSubs.length;
 
   const hostControls = isHost ? (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
@@ -905,7 +906,7 @@ function VotingView({
           {rankedIds.map((id, i) => {
             const sub = submissions.find((s) => s.id === id);
             const label = sub
-              ? submissions.filter(s => !s.isOwnSubmission).findIndex(s => s.id === id)
+              ? nonOwnSubs.findIndex(s => s.id === id)
               : -1;
             const letter = label >= 0 ? String.fromCharCode(65 + label) : "?";
             return (
@@ -921,11 +922,12 @@ function VotingView({
       )}
 
       <div className="space-y-3">
-        {submissions.map((sub, i) => {
+        {submissions.map((sub) => {
           const isOwn = sub.isOwnSubmission ?? false;
           const rankIdx = rankedIds.indexOf(sub.id);
           const rankBadge = rankIdx !== -1 ? rankIdx + 1 : null;
-          const label = isOwn ? "Your submission" : `Submission ${String.fromCharCode(65 + i)}`;
+          const otherIdx = isOwn ? -1 : nonOwnSubs.findIndex((s) => s.id === sub.id);
+          const label = isOwn ? "Your submission" : `Submission ${String.fromCharCode(65 + otherIdx)}`;
           return (
             <SubmissionPatternCard
               key={sub.id}
@@ -1368,11 +1370,12 @@ function ChallengeLiveView({
             </div>
           )}
 
-          {submissions.map((sub, i) => {
+          {submissions.map((sub) => {
             const isOwn = sub.isOwnSubmission ?? false;
             const rankIdx = rankedIds.indexOf(sub.id);
             const rankBadge = rankIdx !== -1 ? rankIdx + 1 : null;
-            const label = isOwn ? "Your submission" : `Submission ${String.fromCharCode(65 + i)}`;
+            const otherIdx = isOwn ? -1 : otherSubs.findIndex((s) => s.id === sub.id);
+            const label = isOwn ? "Your submission" : `Submission ${String.fromCharCode(65 + otherIdx)}`;
             return (
               <SubmissionPatternCard
                 key={sub.id}
