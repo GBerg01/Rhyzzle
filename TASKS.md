@@ -125,6 +125,8 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 | `DONE` | Highlight rendering in submission display | All 10 color categories rendering in SubmissionPatternCard | `components/highlighted-text.tsx`, `components/submission-pattern-card.tsx` |
 | `DONE` | Highlight spans returned by GET API | Spans included in SubmissionDTO for VOTING/REVEAL/CHALLENGE_LINK | `app/api/rooms/[roomCode]/route.ts` |
 | `DONE` | Live editor indicators while typing | Required word chips update live; per-line status badges + rhyme hints; debounced 300ms; guidance note shown | `lib/rule-checks/live-checks.ts`, `components/lyric-puzzle-canvas.tsx` |
+| `DONE` | Live Rhyzzle checklist while typing | Compact collapsible checklist below canvas: bars count, required word chips, rhyme groups, per-line rules, after-submit indicators | `lib/rule-checks/checklist.ts`, `components/rhyzzle-checklist.tsx`, `app/play/[barCount]/page.tsx` |
+| `DONE` | Checklist in room writing states | RhyzzleChecklist added to GROUP_ROOM writing phase and CHALLENGE_LINK writing phase | `app/room/[roomCode]/page.tsx` |
 | `DONE` | Canvas color identity while typing | Rows always colorful; focused row gets left strip + darker tint; typed text color-tinted; canvas border tracks focused line | `lib/lyric-meta.ts`, `components/lyric-puzzle-canvas.tsx` |
 | `DONE` | Inline highlight precision | End rhymes, alliteration, required words, metaphor phrase all highlight exact spans — not whole lines | `lib/rule-checks/deterministic.ts`, `lib/rule-checks/ai-placeholder.ts` |
 | `DONE` | Slant rhyme detection | wordsLikelyRhyme() with 4-level heuristic: exact key, dedup, phoneme group (OH/EE/EYE etc.), last-2-chars | `lib/rule-checks/deterministic.ts` |
@@ -153,4 +155,4 @@ Status labels: `TODO` | `IN_PROGRESS` | `DONE` | `BLOCKED`
 | Result card as image | Use canvas or og-image generation |
 | Admin dashboard | Create/schedule DailyChallenges, view stats |
 | Challenge template library | Browse and reuse challenge templates |
-| Required word validation UI | Show which required words are used/missing while typing |
+| ~~Required word validation UI~~ | Done — word chips in live checklist + overlay highlights |

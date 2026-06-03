@@ -1016,3 +1016,23 @@ Each input row gets an absolutely-positioned `<div>` overlay that renders the fu
 
 **Status after this session:**
 Live checklist shipped. Shows bar count, required word chips, rhyme group pass/slant/missing, per-line rule status, and after-submit indicators. Collapsed by default with count summary. All pushed to origin/main.
+
+---
+
+## Session 22 — 2026-06-02
+
+**Goal:** Wire `RhyzzleChecklist` into the room writing experience so both GROUP_ROOM and CHALLENGE_LINK participants see the live checklist while typing bars.
+
+**What was done:**
+
+### `app/room/[roomCode]/page.tsx`
+- Added `import { RhyzzleChecklist } from "@/components/rhyzzle-checklist"`
+- **`WritingView`** (GROUP_ROOM writing phase, lines ~785–797): added `<RhyzzleChecklist lines={barLines} challenge={challenge} />` below the `LyricPuzzleCanvas`, inside the `space-y-4` scrollable area. Guarded by `barLines.length === barCount` (same guard as the canvas) so it never renders with a mismatched array.
+- **`ChallengeLinkView`** (CHALLENGE_LINK writing phase, lines ~1143–1155): same treatment — checklist placed after canvas in scrollable area, same guard.
+
+**No new components, no new helpers** — reuses `rhyzzle-checklist.tsx` and `lib/rule-checks/checklist.ts` unchanged.
+
+**TypeScript:** `pnpm tsc --noEmit` — clean, zero errors.
+
+**Status after this session:**
+Checklist is now live in all three writing contexts: solo `/play/[barCount]`, GROUP_ROOM writing phase, and CHALLENGE_LINK writing phase. Updates on every keystroke (300ms debounce). Does not block submit. Does not affect live highlights, voting, or reveal.
