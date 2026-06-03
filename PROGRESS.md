@@ -976,3 +976,43 @@ Each input row gets an absolutely-positioned `<div>` overlay that renders the fu
 - Very long bars (60+ chars on narrow screens) may show highlight misalignment past the overflow point; scroll sync mitigates this
 - Slant rhyme highlights use soft opacity (0.45) and only appear after partner line has text
 - Subjective rules (punchline, callback, internal rhyme, assonance) still show "→ submit" — no overlay spans
+
+---
+
+## Session 21 — 2026-06-02
+
+**Goal:** Live Rhyzzle Checklist — compact summary of puzzle completion while typing.
+
+**What was done:**
+
+### `lib/rule-checks/checklist.ts` (new)
+- `buildChecklist(lines, challenge): ChecklistState` — pure function, no AI, no Node APIs
+- `ChecklistStatus` union: `"COMPLETE" | "NEEDS_REVIEW" | "MISSING" | "CHECK_AFTER_SUBMIT"`
+- `ChecklistItem` has `id`, `label`, `detail?`, `status`, `relatedLines?`, `wordChips?`
+- Item types generated:
+  1. **Bars** — `filledCount / barCount`, COMPLETE when all filled
+  2. **Required words** — one item with `wordChips[]`, each chip found/missing; overall COMPLETE/NEEDS_REVIEW/MISSING
+  3. **Rhyme groups** — one per unique scheme letter (2+ lines); checks all pairs via `checkEndRhymePair`; COMPLETE for exact rhyme, NEEDS_REVIEW for slant, MISSING if partner not written
+  4. **Per-line explicit rules** — highest-priority non-scheme rule per line:
+     - PUNCHLINE/CALLBACK/ASSONANCE/INTERNAL_RHYME → CHECK_AFTER_SUBMIT
+     - ALLITERATION → deterministic COMPLETE or NEEDS_REVIEW
+     - METAPHOR → COMPLETE (metaphor), NEEDS_REVIEW (simile detected), CHECK_AFTER_SUBMIT (not detected)
+     - THEME_REFERENCE → COMPLETE or NEEDS_REVIEW
+     - CHAIN_RHYME → COMPLETE or NEEDS_REVIEW
+- `ChecklistState` includes counts for all 4 statuses
+
+### `components/rhyzzle-checklist.tsx` (new)
+- Starts **collapsed** — header shows `N / M` badge + inline `X~ Y missing` counts
+- Tap header to expand full item list
+- Each row: icon (✓/~/✗/→) + colored label + detail text
+- Required words item: renders word chips (green=found, red=missing)
+- 300ms debounce via `useEffect` — same cadence as live highlights
+- Footer: "Hints only — humans still vote who cooked."
+
+### `app/play/[barCount]/page.tsx`
+- Added `<RhyzzleChecklist lines={barLines} challenge={challenge} />` below the canvas in scrollable writing area
+
+**TypeScript:** `pnpm tsc --noEmit` — clean.
+
+**Status after this session:**
+Live checklist shipped. Shows bar count, required word chips, rhyme group pass/slant/missing, per-line rule status, and after-submit indicators. Collapsed by default with count summary. All pushed to origin/main.
