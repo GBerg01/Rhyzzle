@@ -125,7 +125,7 @@ export function checkMetaphor(line: string, lineIndex: number): RuleCheckResult 
       startIndex: spanStart,
       endIndex: spanEnd,
       text: line.slice(spanStart, spanEnd),
-      category: "METAPHOR",
+      category: isSimile ? "SIMILE" : "METAPHOR",
       confidence: 0.65,
       explanation: isSimile
         ? "Possible simile — comparison using \"like\" (heuristic)."

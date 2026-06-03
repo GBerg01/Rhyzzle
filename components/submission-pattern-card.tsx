@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import type { ChallengeDTO, SubmissionLineDTO } from "@/lib/types";
-import { buildMeta, C } from "@/lib/lyric-meta";
+import { buildMeta, C, getLineAllChips } from "@/lib/lyric-meta";
 import { HighlightedText } from "@/components/highlighted-text";
 
 const PLACEMENT_EMOJI: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
@@ -31,6 +31,7 @@ export function SubmissionPatternCard({
   onClick,
 }: SubmissionPatternCardProps) {
   const meta = buildMeta(challenge);
+  const scheme = meta.map((m) => m.schemeLetter);
   const isInteractive = !!onClick && !isOwn;
 
   const borderClass = isOwn
@@ -102,6 +103,7 @@ export function SubmissionPatternCard({
           const line = lines.find((l) => l.lineIndex === i);
           const text = line?.text ?? "";
           const col = C[m.chip.color];
+          const chips = getLineAllChips(i, challenge, scheme);
           return (
             <div
               key={i}
@@ -132,16 +134,25 @@ export function SubmissionPatternCard({
                 </span>
               </div>
 
-              {/* Content: chip label + bar text */}
+              {/* Content: chip labels + bar text */}
               <div className="flex-1 flex flex-col justify-center gap-0.5 px-2.5 py-2 min-w-0">
-                <span
-                  className={cn(
-                    "text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded-full self-start leading-none",
-                    col.chip, col.text,
-                  )}
-                >
-                  {m.chip.label}
-                </span>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {chips.map((chip) => {
+                    const chipCol = C[chip.color];
+                    return (
+                      <span
+                        key={chip.key}
+                        className={cn(
+                          "font-black uppercase tracking-wide px-1.5 py-0.5 rounded-full leading-none",
+                          chip.priority === "primary" ? "text-[9px]" : "text-[8px] opacity-75",
+                          chipCol.chip, chipCol.text,
+                        )}
+                      >
+                        {chip.label}
+                      </span>
+                    );
+                  })}
+                </div>
                 {text ? (
                   <p className="text-sm text-zinc-900 leading-snug font-normal">
                     <HighlightedText

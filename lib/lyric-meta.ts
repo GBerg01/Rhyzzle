@@ -132,6 +132,102 @@ export const RULE_PRI: Partial<Record<ConstraintType, number>> = {
   ALLITERATION: 3, ASSONANCE: 2, REQUIRED_WORD: 1,
 };
 
+// ─── Multi-chip helper ───────────────────────────────────────────────────────
+
+/**
+ * Returns ALL rule chips for a given line — primary (highest priority explicit rule)
+ * followed by any secondary chips (e.g. rhyme relationship when not already covered).
+ * Used to display multiple badges per line in the writing canvas and result cards.
+ */
+export interface LineChip {
+  key: string;
+  label: string;
+  color: LineColor;
+  helpKey: RuleHelpKey;
+  priority: "primary" | "secondary";
+  /** Non-null for chips that represent a rhyme relationship. */
+  rhymesWithLine: number | null;
+}
+
+const RHYME_RULE_TYPES = new Set<ConstraintType>([
+  "END_RHYME",
+  "LINE_START_RHYMES_WITH_PREVIOUS_END",
+]);
+
+const SKIP_RULE_TYPES = new Set<ConstraintType>([
+  "RHYME_SCHEME",
+  "LINE_COUNT",
+  "REQUIRED_WORD",
+]);
+
+export function getLineAllChips(
+  lineIndex: number,
+  challenge: ChallengeDTO,
+  scheme: string[],
+): LineChip[] {
+  const { rules } = challenge;
+
+  const letter = scheme[lineIndex] ?? "X";
+  const firstOf = scheme.indexOf(letter);
+  const isFirst = firstOf === lineIndex;
+  const rhymesWithLine = isFirst ? null : firstOf;
+
+  // All explicit rules for this line, sorted by priority descending
+  const explicitRules = rules
+    .filter((r) => r.lineIndex === lineIndex && !SKIP_RULE_TYPES.has(r.type))
+    .sort((a, b) => (RULE_PRI[b.type] ?? 0) - (RULE_PRI[a.type] ?? 0));
+
+  const chips: LineChip[] = [];
+
+  if (explicitRules.length > 0) {
+    for (let idx = 0; idx < explicitRules.length; idx++) {
+      const rule = explicitRules[idx];
+      const chipData = ruleToChip(rule.type, lineIndex, idx === 0 && RHYME_RULE_TYPES.has(rule.type) ? rhymesWithLine : null);
+      chips.push({
+        key: `rule-${rule.type}-${lineIndex}`,
+        label: chipData.label,
+        color: chipData.color,
+        helpKey: chipData.helpKey,
+        priority: idx === 0 ? "primary" : "secondary",
+        rhymesWithLine: RHYME_RULE_TYPES.has(rule.type) ? rhymesWithLine : null,
+      });
+    }
+
+    // Add secondary rhyme chip if primary doesn't already cover the rhyme relationship
+    const primaryIsRhyme = RHYME_RULE_TYPES.has(explicitRules[0].type);
+    if (!isFirst && !primaryIsRhyme && rhymesWithLine !== null) {
+      chips.push({
+        key: `rhyme-secondary-${lineIndex}`,
+        label: `RHYME ↔ L${rhymesWithLine + 1}`,
+        color: "cyan",
+        helpKey: "RHYME_WITH_LINE",
+        priority: "secondary",
+        rhymesWithLine,
+      });
+    }
+  } else if (!isFirst && rhymesWithLine !== null) {
+    chips.push({
+      key: `rhyme-${lineIndex}`,
+      label: `RHYME ↔ L${rhymesWithLine + 1}`,
+      color: "cyan",
+      helpKey: "RHYME_WITH_LINE",
+      priority: "primary",
+      rhymesWithLine,
+    });
+  } else {
+    chips.push({
+      key: `setup-${lineIndex}`,
+      label: "SETUP RHYME",
+      color: "yellow",
+      helpKey: "SETUP_RHYME",
+      priority: "primary",
+      rhymesWithLine: null,
+    });
+  }
+
+  return chips;
+}
+
 export function buildMeta(challenge: ChallengeDTO): LineMeta[] {
   const { barCount, rules } = challenge;
   const scheme = deriveScheme(barCount, rules);

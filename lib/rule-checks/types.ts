@@ -46,6 +46,7 @@ export const CATEGORY_COLOR: Record<HighlightCategory, string> = {
   ALLITERATION:       "orange",
   ASSONANCE:          "teal",
   METAPHOR:           "green",
+  SIMILE:             "teal",
   PUNCHLINE:          "purple",
   DOUBLE_MEANING:     "orange",
   CALLBACK:           "pink",

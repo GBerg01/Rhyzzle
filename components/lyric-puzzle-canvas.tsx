@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import type { ChallengeDTO } from "@/lib/types";
 import type { RuleHelpKey } from "@/lib/rule-help";
 import { RuleHelpSheet } from "@/components/rule-help-sheet";
-import { buildMeta, C, letterColor, type LineColor } from "@/lib/lyric-meta";
+import { buildMeta, C, letterColor, getLineAllChips, type LineColor } from "@/lib/lyric-meta";
 import { runLiveChecks, type LiveCheckState } from "@/lib/rule-checks/live-checks";
 
 // ─── Focus indicator — 3px colored left strip when a row is active ────────────
@@ -67,6 +67,7 @@ export function LyricPuzzleCanvas({
 
   const meta = buildMeta(challenge);
   const scheme = meta.map((m) => m.schemeLetter);
+  const allLineChips = meta.map((_, i) => getLineAllChips(i, challenge, scheme));
   const filledCount = lines.filter((l) => l.trim().length > 0).length;
   const allFilled = filledCount === challenge.barCount && lines.every((l) => l.trim().length > 0);
 
@@ -155,6 +156,7 @@ export function LyricPuzzleCanvas({
           const isFocused = focusedLine === i;
           const col = C[m.chip.color];
           const hint = liveState.lineHints[i];
+          const chips = allLineChips[i];
 
           return (
             <div
@@ -199,30 +201,32 @@ export function LyricPuzzleCanvas({
                 </span>
               </div>
 
-              {/* Content: chip + input + hints */}
+              {/* Content: chips + input + hints */}
               <div className="flex-1 flex flex-col justify-center gap-1 px-3 py-2.5 min-w-0">
-                {/* Rule chip row — chip, rhyme link, live status indicator */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={(e) => openHelp(m.chip.helpKey, e)}
-                    className={cn(
-                      "text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded-full flex-shrink-0 leading-none",
-                      "active:scale-95 transition-transform cursor-pointer",
-                      col.chip, col.text,
-                    )}
-                    aria-label={`What is ${m.chip.label}?`}
-                  >
-                    {m.chip.label} ?
-                  </button>
+                {/* Rule chip row — all chips for this line, then status */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {chips.map((chip, cidx) => {
+                    const chipCol = C[chip.color];
+                    const isPrimary = chip.priority === "primary";
+                    return (
+                      <button
+                        key={chip.key}
+                        type="button"
+                        onClick={(e) => openHelp(chip.helpKey, e)}
+                        className={cn(
+                          "font-black uppercase tracking-wide px-2 py-0.5 rounded-full flex-shrink-0 leading-none",
+                          "active:scale-95 transition-transform cursor-pointer",
+                          isPrimary ? "text-[10px]" : "text-[9px] opacity-80",
+                          chipCol.chip, chipCol.text,
+                        )}
+                        aria-label={`What is ${chip.label}?`}
+                      >
+                        {chip.label}{cidx === 0 ? " ?" : ""}
+                      </button>
+                    );
+                  })}
 
-                  {m.rhymesWithLine !== null && (
-                    <span className="text-[10px] text-zinc-400 font-mono font-semibold leading-none">
-                      ↔ line {m.rhymesWithLine + 1}
-                    </span>
-                  )}
-
-                  {/* Live status indicator — only when line has content */}
+                  {/* Live status — shown when line has content */}
                   {hint && hint.status !== "empty" && (
                     <>
                       {hint.ruleHint && (
@@ -260,7 +264,6 @@ export function LyricPuzzleCanvas({
                   className={cn(
                     "w-full bg-transparent text-sm font-normal",
                     "placeholder-zinc-400 outline-none leading-snug",
-                    // Color-tinted dark text so each bar feels tied to its scheme slot
                     col.textDark,
                     disabled && "cursor-not-allowed",
                   )}
@@ -269,12 +272,19 @@ export function LyricPuzzleCanvas({
                   spellCheck={false}
                 />
 
+                {/* Detected figurative phrase pill */}
+                {hint?.detectedPhrase && (
+                  <span className="text-[10px] text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full leading-none self-start truncate max-w-full">
+                    detected: &ldquo;{hint.detectedPhrase}&rdquo;
+                  </span>
+                )}
+
                 {/* Rhyme hint — shown below input once partner line has text */}
                 {hint?.rhymeHint && (
                   <span
                     className={cn(
                       "text-[10px] font-medium leading-none",
-                      hint.rhymeHint.endsWith("✓")
+                      hint.rhymeHint.includes("✓")
                         ? "text-green-600"
                         : "text-amber-500",
                     )}

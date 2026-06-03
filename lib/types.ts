@@ -28,6 +28,7 @@ export type HighlightCategory =
   | "ALLITERATION"
   | "ASSONANCE"
   | "METAPHOR"
+  | "SIMILE"
   | "PUNCHLINE"
   | "DOUBLE_MEANING"
   | "CALLBACK"

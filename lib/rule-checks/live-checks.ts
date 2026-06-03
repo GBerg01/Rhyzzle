@@ -32,6 +32,8 @@ export interface LineHint {
    * Canvas shows "→ submit" near the chip instead of a definitive indicator.
    */
   isSubjectiveRule: boolean;
+  /** Full detected phrase when a metaphor/simile pattern is found. */
+  detectedPhrase: string | null;
 }
 
 export interface RequiredWordStatus {
@@ -97,12 +99,13 @@ export function runLiveChecks(lines: string[], challenge: ChallengeDTO): LiveChe
     const text = lines[i] ?? "";
 
     if (!text.trim()) {
-      return { status: "empty", ruleHint: null, rhymeHint: null, isSubjectiveRule: false };
+      return { status: "empty", ruleHint: null, rhymeHint: null, isSubjectiveRule: false, detectedPhrase: null };
     }
 
     let status: LineStatus = "in_progress";
     let ruleHint: string | null = null;
     let isSubjectiveRule = false;
+    let detectedPhrase: string | null = null;
 
     // ── Explicit rule check ───────────────────────────────────────────────────
     const rule = effectiveRule(rules, i);
@@ -127,10 +130,11 @@ export function runLiveChecks(lines: string[], challenge: ChallengeDTO): LiveChe
         case "METAPHOR": {
           const r = checkMetaphor(text, i);
           if (r.status === "PASS") {
-            ruleHint = "Pattern detected";
+            const isSim = r.highlights[0]?.category === "SIMILE";
+            ruleHint = isSim ? "Simile detected ~" : "Metaphor detected ✓";
             status = "looks_good";
+            detectedPhrase = r.highlights[0]?.text ?? null;
           } else {
-            // Fall through — show "→ submit" since heuristic couldn't confirm
             isSubjectiveRule = true;
           }
           break;
@@ -208,7 +212,7 @@ export function runLiveChecks(lines: string[], challenge: ChallengeDTO): LiveChe
       }
     }
 
-    return { status, ruleHint, rhymeHint, isSubjectiveRule };
+    return { status, ruleHint, rhymeHint, isSubjectiveRule, detectedPhrase };
   });
 
   return { requiredWords, lineHints };

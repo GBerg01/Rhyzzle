@@ -14,6 +14,7 @@ import type { DailyBarCount } from "@/lib/daily-challenge";
 import { BeatPlayer } from "@/components/beat-player";
 import { LyricPuzzleCanvas } from "@/components/lyric-puzzle-canvas";
 import { SubmissionPatternCard } from "@/components/submission-pattern-card";
+import { HighlightKey } from "@/components/highlight-key";
 import { cn, copyToClipboard } from "@/lib/utils";
 import type { BeatDTO, SubmissionLineDTO } from "@/lib/types";
 import { runRuleChecks } from "@/lib/rule-checks/run-rule-checks";
@@ -294,6 +295,7 @@ export default function DailyPlayPage() {
               lines={previewLines}
               label="Your Bars"
             />
+            <HighlightKey />
             <p className="text-[10px] text-zinc-600 text-center mt-2 leading-relaxed">
               Rhyzzle checks the pattern, not quality. Humans still vote who cooked.
             </p>
